@@ -11,6 +11,7 @@ export default function AddMemberModal({ isOpen, onClose, plans, onAdd }) {
   // Details form state
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
+  const [gender, setGender] = useState('')
   const [planId, setPlanId] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -26,6 +27,7 @@ export default function AddMemberModal({ isOpen, onClose, plans, onAdd }) {
       setStep('details')
       setName('')
       setPhone('')
+      setGender('')
       setPlanId('')
       setNewMember(null)
       setEnrolledId(null)
@@ -71,6 +73,11 @@ export default function AddMemberModal({ isOpen, onClose, plans, onAdd }) {
       setLoading(false)
       return
     }
+    if (!gender) {
+      setError('Please select a gender')
+      setLoading(false)
+      return
+    }
 
     const selectedPlan = plans.find(p => p.id === planId)
     
@@ -79,6 +86,7 @@ export default function AddMemberModal({ isOpen, onClose, plans, onAdd }) {
       const member = await onAdd({
         name,
         phone,
+        gender,
         plan_id: planId,
         plan: selectedPlan,
         fingerprint_id: null // No biometric yet
@@ -182,6 +190,20 @@ export default function AddMemberModal({ isOpen, onClose, plans, onAdd }) {
             </div>
 
             <div className="space-y-1">
+              <label className="text-xs font-medium text-zinc-400 uppercase tracking-wider ml-1">Gender</label>
+              <select
+                required
+                value={gender}
+                onChange={(e) => setGender(e.target.value)}
+                className="w-full px-4 py-3 bg-zinc-950 border border-zinc-800 rounded-xl focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 outline-none transition-all text-white appearance-none"
+              >
+                <option value="" disabled>Select gender...</option>
+                <option value="male">Male</option>
+                <option value="female">Female</option>
+              </select>
+            </div>
+
+            <div className="space-y-1">
               <label className="text-xs font-medium text-zinc-400 uppercase tracking-wider ml-1">Gym Plan</label>
               <select
                 required
@@ -192,7 +214,7 @@ export default function AddMemberModal({ isOpen, onClose, plans, onAdd }) {
                 <option value="" disabled>Select a plan...</option>
                 {plans.map(plan => (
                   <option key={plan.id} value={plan.id}>
-                    {plan.name} - ${plan.price} ({plan.duration_days} days)
+                    {plan.name} - PKR {plan.price} ({plan.duration_days} days)
                   </option>
                 ))}
               </select>

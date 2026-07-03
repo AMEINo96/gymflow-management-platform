@@ -1,21 +1,33 @@
-import { createServerClient } from '@supabase/ssr'
-import { cookies } from 'next/headers'
+import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
 
 export async function GET(request) {
-  const cookieStore = await cookies()
-  const supabase = createServerClient(
+  // Use the Service Role Key for backend hardware endpoints to securely bypass RLS
+  const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-    {
-      cookies: {
-        getAll() { return cookieStore.getAll() },
-        setAll(cookiesToSet) { },
-      },
-    }
+    process.env.SUPABASE_SERVICE_ROLE_KEY
   )
 
   try {
+    // 1. Check global system settings for hardware overrides
+    const { data: settings } = await supabase
+      .from('system_settings')
+      .select('door_mode')
+      .eq('id', 1)
+      .single()
+
+    if (settings) {
+      if (settings.door_mode === 'unlock') {
+        // Reset to normal automatically after sending unlock signal
+        await supabase.from('system_settings').update({ door_mode: 'normal' }).eq('id', 1)
+        return NextResponse.json({ mode: 'unlock' })
+      }
+      if (settings.door_mode === 'locked') {
+        return NextResponse.json({ mode: 'locked' })
+      }
+    }
+
+    // 2. Normal mode: check if any member is enrolling
     const { data, error } = await supabase
       .from('members')
       .select('id')

@@ -28,11 +28,18 @@ export default function Login() {
       setLoading(false)
     } else if (authData?.user) {
       // Fetch user role from profile to redirect correctly
-      const { data: profile } = await supabase
+      const { data: profile, error: profileError } = await supabase
         .from('users')
         .select('role')
         .eq('id', authData.user.id)
         .single()
+
+      if (profileError) {
+        console.error('Profile fetch error:', profileError)
+        setError(`Database Error: Could not verify admin role. ${profileError.message}. Make sure your Auth UUID (${authData.user.id}) matches the public.users table and RLS is enabled.`)
+        setLoading(false)
+        return
+      }
 
       const role = profile?.role || 'staff'
       window.location.href = (role === 'admin' ? '/admin' : '/staff') + '?t=' + Date.now()

@@ -1,19 +1,12 @@
-import { createServerClient } from '@supabase/ssr'
-import { cookies } from 'next/headers'
+import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
 import { differenceInDays } from 'date-fns'
 
 export async function POST(request) {
-  const cookieStore = await cookies()
-  const supabase = createServerClient(
+  // Use the Service Role Key for backend hardware endpoints to securely bypass RLS
+  const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-    {
-      cookies: {
-        getAll() { return cookieStore.getAll() },
-        setAll(cookiesToSet) { },
-      },
-    }
+    process.env.SUPABASE_SERVICE_ROLE_KEY
   )
 
   try {

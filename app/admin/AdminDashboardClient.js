@@ -3,17 +3,26 @@
 import { useState, useEffect } from 'react'
 import { 
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer,
-  BarChart, Bar
+  BarChart, Bar, PieChart, Pie, Cell
 } from 'recharts'
-import { Users, DollarSign, UserPlus, Activity, Trash2, Loader2 } from 'lucide-react'
+import { Users, DollarSign, UserPlus, Activity, Trash2, Loader2, TrendingUp, Lock, Unlock, Shield, RefreshCcw, Maximize2, X, Clock } from 'lucide-react'
 import { createClient } from '@/utils/supabase/client'
+
+const COLORS = {
+  Male: '#3b82f6', // blue-500
+  Female: '#ec4899', // pink-500
+}
 
 export default function AdminDashboardClient({ 
   totalMonthlyRevenue, 
   activeMembersCount, 
   newSignupsCount, 
   revenueData, 
-  busyHoursData 
+  busyHoursData,
+  growthData,
+  genderSplitData = [],
+  revenueByGenderData = [],
+  attendanceConsistencyData = []
 }) {
   const [members, setMembers] = useState([])
   const [plans, setPlans] = useState([])
@@ -22,6 +31,13 @@ export default function AdminDashboardClient({
   const [loadingPlans, setLoadingPlans] = useState(true)
   const [deletingId, setDeletingId] = useState(null)
   const [deletingPlanId, setDeletingPlanId] = useState(null)
+  const [showDeleted, setShowDeleted] = useState(false)
+
+  // Analytics Modal State
+  const [expandedChart, setExpandedChart] = useState(null)
+  const [analyticsTimeframe, setAnalyticsTimeframe] = useState('30d')
+  const [analyticsData, setAnalyticsData] = useState(null)
+  const [loadingAnalytics, setLoadingAnalytics] = useState(false)
   
   // Plan form state
   const [newPlanName, setNewPlanName] = useState('')
@@ -29,12 +45,90 @@ export default function AdminDashboardClient({
   const [newPlanDuration, setNewPlanDuration] = useState('')
   const [submittingPlan, setSubmittingPlan] = useState(false)
 
+  const [doorMode, setDoorMode] = useState('normal')
+  const [loadingHardware, setLoadingHardware] = useState(false)
+
+  // Schedules state
+  const [schedules, setSchedules] = useState([])
+  const [loadingSchedules, setLoadingSchedules] = useState(true)
+  const [newScheduleGender, setNewScheduleGender] = useState('male')
+  const [newScheduleStart, setNewScheduleStart] = useState('')
+  const [newScheduleEnd, setNewScheduleEnd] = useState('')
+  const [submittingSchedule, setSubmittingSchedule] = useState(false)
+  const [deletingScheduleId, setDeletingScheduleId] = useState(null)
+
   const supabase = createClient()
 
   useEffect(() => {
     fetchMembers()
     fetchPlans()
+    fetchDoorMode()
+    fetchSchedules()
   }, [])
+
+  useEffect(() => {
+    fetchMembers()
+  }, [showDeleted])
+
+  useEffect(() => {
+    if (expandedChart) {
+      fetchAnalytics(expandedChart, analyticsTimeframe)
+    }
+  }, [expandedChart, analyticsTimeframe])
+
+  const fetchAnalytics = async (type, timeframe) => {
+    setLoadingAnalytics(true)
+    const isDemo = typeof document !== 'undefined' && document.cookie.includes('gymflow_demo_role')
+    if (isDemo) {
+      setTimeout(() => {
+        setAnalyticsData({ chart: [], raw: [] })
+        setLoadingAnalytics(false)
+      }, 500)
+      return
+    }
+
+    try {
+      const res = await fetch(`/api/analytics?type=${type}&timeframe=${timeframe}`)
+      const data = await res.json()
+      setAnalyticsData(data)
+    } catch (e) {
+      console.error('Failed to fetch analytics', e)
+    } finally {
+      setLoadingAnalytics(false)
+    }
+  }
+
+  const fetchDoorMode = async () => {
+    const isDemo = typeof document !== 'undefined' && document.cookie.includes('gymflow_demo_role')
+    if (isDemo) return
+    try {
+      const { data } = await supabase.from('system_settings').select('door_mode').eq('id', 1).single()
+      if (data) setDoorMode(data.door_mode)
+    } catch (e) {
+      console.error('Failed to fetch door mode', e)
+    }
+  }
+
+  const handleUpdateDoorMode = async (mode) => {
+    setLoadingHardware(true)
+    const isDemo = typeof document !== 'undefined' && document.cookie.includes('gymflow_demo_role')
+    if (isDemo) {
+      alert(`Hardware mode changed to ${mode} (Demo)`)
+      setDoorMode(mode)
+      setLoadingHardware(false)
+      return
+    }
+    
+    try {
+      await supabase.from('system_settings').update({ door_mode: mode }).eq('id', 1)
+      setDoorMode(mode)
+    } catch (error) {
+      console.error('Error updating door mode:', error)
+      alert('Failed to update hardware mode')
+    } finally {
+      setLoadingHardware(false)
+    }
+  }
 
   const fetchPlans = async () => {
     const isDemo = typeof document !== 'undefined' && document.cookie.includes('gymflow_demo_role')
@@ -67,6 +161,44 @@ export default function AdminDashboardClient({
     }
   }
 
+  const fetchSchedules = async () => {
+    const isDemo = typeof document !== 'undefined' && document.cookie.includes('gymflow_demo_role')
+    if (isDemo) {
+      const stored = localStorage.getItem('gymflow_schedules')
+      if (stored) {
+        setSchedules(JSON.parse(stored))
+      } else {
+        const defaultSchedules = [
+          { id: 1, gender: 'male', start_time: '06:00:00', end_time: '10:00:00' },
+          { id: 2, gender: 'female', start_time: '10:00:00', end_time: '16:00:00' },
+          { id: 3, gender: 'male', start_time: '16:00:00', end_time: '23:00:00' }
+        ]
+        setSchedules(defaultSchedules)
+        localStorage.setItem('gymflow_schedules', JSON.stringify(defaultSchedules))
+      }
+      setLoadingSchedules(false)
+      return
+    }
+
+    try {
+      const { data, error } = await supabase.from('schedules').select('*').order('start_time')
+      if (error) {
+        if (error.code === '42P01') {
+          console.warn('Schedules table does not exist yet.')
+          setSchedules([])
+        } else {
+          throw error
+        }
+      } else {
+        setSchedules(data || [])
+      }
+    } catch (error) {
+      console.error('Error fetching schedules:', error)
+    } finally {
+      setLoadingSchedules(false)
+    }
+  }
+
   const fetchMembers = async () => {
     const isDemo = typeof document !== 'undefined' && document.cookie.includes('gymflow_demo_role')
     if (isDemo) {
@@ -79,13 +211,21 @@ export default function AdminDashboardClient({
     }
 
     try {
-      const { data } = await supabase
+      let query = supabase
         .from('members')
         .select(`
           *,
           plans:plan_id (name)
         `)
         .order('created_at', { ascending: false })
+      
+      if (showDeleted) {
+        query = query.not('deleted_at', 'is', null)
+      } else {
+        query = query.is('deleted_at', null)
+      }
+
+      const { data } = await query
       setMembers(data || [])
     } catch (error) {
       console.error('Error fetching members:', error)
@@ -94,15 +234,44 @@ export default function AdminDashboardClient({
     }
   }
 
-  const handleDeleteMember = async (memberId) => {
-    if (!confirm('Are you sure you want to delete this member?')) return
+  const handleRecoverMember = async (id) => {
+    setDeletingId(id)
+    if (typeof document !== 'undefined' && document.cookie.includes('gymflow_demo_role')) return
+    try {
+      const { error } = await supabase.from('members').update({ deleted_at: null }).eq('id', id)
+      if (error) throw error
+      await fetchMembers()
+    } catch (error) {
+      alert('Failed to recover member')
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
+  const handleHardDeleteMember = async (id) => {
+    if (!confirm('Are you sure you want to PERMANENTLY delete this member?')) return
+    setDeletingId(id)
+    if (typeof document !== 'undefined' && document.cookie.includes('gymflow_demo_role')) return
+    try {
+      const { error } = await supabase.from('members').delete().eq('id', id)
+      if (error) throw error
+      await fetchMembers()
+    } catch (error) {
+      alert('Failed to permanently delete member')
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
+  const handleDeleteMember = async (id) => {
+    if (!confirm('Are you sure you want to move this member to Recently Deleted?')) return
     
-    setDeletingId(memberId)
+    setDeletingId(id)
     const isDemo = typeof document !== 'undefined' && document.cookie.includes('gymflow_demo_role')
     
     if (isDemo) {
       const stored = JSON.parse(localStorage.getItem('gymflow_members') || '[]')
-      const updated = stored.filter(m => m.id !== memberId)
+      const updated = stored.filter(m => m.id !== id)
       localStorage.setItem('gymflow_members', JSON.stringify(updated))
       setMembers(updated)
       setDeletingId(null)
@@ -110,11 +279,12 @@ export default function AdminDashboardClient({
     }
 
     try {
-      await supabase
+      const { error } = await supabase
         .from('members')
-        .delete()
-        .eq('id', memberId)
-      
+        .update({ deleted_at: new Date().toISOString() })
+        .eq('id', id)
+        
+      if (error) throw error
       await fetchMembers()
     } catch (error) {
       console.error('Error deleting member:', error)
@@ -203,6 +373,86 @@ export default function AdminDashboardClient({
     }
   }
 
+  const handleAddSchedule = async (e) => {
+    e.preventDefault()
+    if (!newScheduleGender || !newScheduleStart || !newScheduleEnd) return
+
+    setSubmittingSchedule(true)
+    const isDemo = typeof document !== 'undefined' && document.cookie.includes('gymflow_demo_role')
+
+    const scheduleData = {
+      gender: newScheduleGender,
+      start_time: newScheduleStart + ':00',
+      end_time: newScheduleEnd + ':00'
+    }
+
+    if (isDemo) {
+      const stored = JSON.parse(localStorage.getItem('gymflow_schedules') || '[]')
+      const newSchedule = {
+        id: Math.floor(Math.random() * 10000),
+        ...scheduleData
+      }
+      const updated = [...stored, newSchedule]
+      localStorage.setItem('gymflow_schedules', JSON.stringify(updated))
+      setSchedules(updated)
+      
+      setNewScheduleStart('')
+      setNewScheduleEnd('')
+      setSubmittingSchedule(false)
+      return
+    }
+
+    try {
+      const { error } = await supabase
+        .from('schedules')
+        .insert(scheduleData)
+      
+      if (error) {
+        if (error.code === '42P01') alert("Please ask the admin to run the SQL to create the schedules table first!")
+        else throw error
+      } else {
+        await fetchSchedules()
+        setNewScheduleStart('')
+        setNewScheduleEnd('')
+      }
+    } catch (error) {
+      console.error('Error adding schedule:', error)
+      alert('Failed to add schedule')
+    } finally {
+      setSubmittingSchedule(false)
+    }
+  }
+
+  const handleDeleteSchedule = async (scheduleId) => {
+    if (!confirm('Are you sure you want to delete this schedule?')) return
+
+    setDeletingScheduleId(scheduleId)
+    const isDemo = typeof document !== 'undefined' && document.cookie.includes('gymflow_demo_role')
+
+    if (isDemo) {
+      const stored = JSON.parse(localStorage.getItem('gymflow_schedules') || '[]')
+      const updated = stored.filter(s => s.id !== scheduleId)
+      localStorage.setItem('gymflow_schedules', JSON.stringify(updated))
+      setSchedules(updated)
+      setDeletingScheduleId(null)
+      return
+    }
+
+    try {
+      await supabase
+        .from('schedules')
+        .delete()
+        .eq('id', scheduleId)
+      
+      await fetchSchedules()
+    } catch (error) {
+      console.error('Error deleting schedule:', error)
+      alert('Failed to delete schedule.')
+    } finally {
+      setDeletingScheduleId(null)
+    }
+  }
+
   const filteredMembers = members.filter(member => 
     member.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
     (member.phone && member.phone.toLowerCase().includes(searchTerm.toLowerCase()))
@@ -222,7 +472,7 @@ export default function AdminDashboardClient({
             </div>
             <h3 className="text-zinc-400 font-medium">Total Monthly Revenue</h3>
           </div>
-          <p className="text-4xl font-bold text-white">${totalMonthlyRevenue.toFixed(2)}</p>
+          <p className="text-4xl font-bold text-white">PKR {totalMonthlyRevenue.toFixed(2)}</p>
         </div>
 
         <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6 backdrop-blur-sm relative overflow-hidden">
@@ -253,19 +503,24 @@ export default function AdminDashboardClient({
       </div>
 
       {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6">
-          <h3 className="text-lg font-semibold mb-6 flex items-center gap-2">
-            <Activity className="w-5 h-5 text-emerald-500" />
-            Revenue Growth (6 Months)
-          </h3>
-          <div className="h-80 w-full">
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+        <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6 flex flex-col">
+          <div className="flex justify-between items-center mb-6">
+            <h3 className="text-lg font-semibold flex items-center gap-2">
+              <Activity className="w-5 h-5 text-emerald-500" />
+              Revenue Growth (6 Months)
+            </h3>
+            <button onClick={() => setExpandedChart('revenue')} className="p-1.5 text-zinc-400 hover:text-white bg-zinc-800/50 hover:bg-zinc-800 rounded-lg transition-colors">
+              <Maximize2 className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="flex-1 w-full min-h-[320px]">
             {revenueData.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={revenueData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
                   <XAxis dataKey="name" stroke="#a1a1aa" fontSize={12} tickLine={false} axisLine={false} />
-                  <YAxis stroke="#a1a1aa" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(value) => `$${value}`} />
+                  <YAxis stroke="#a1a1aa" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(value) => `PKR ${value}`} />
                   <RechartsTooltip 
                     contentStyle={{ backgroundColor: '#18181b', border: '1px solid #27272a', borderRadius: '12px' }}
                     itemStyle={{ color: '#34d399' }}
@@ -279,12 +534,47 @@ export default function AdminDashboardClient({
           </div>
         </div>
 
-        <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6">
-          <h3 className="text-lg font-semibold mb-6 flex items-center gap-2">
-            <Users className="w-5 h-5 text-blue-500" />
-            Busy Hours
-          </h3>
-          <div className="h-80 w-full">
+        <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6 flex flex-col">
+          <div className="flex justify-between items-center mb-6">
+            <h3 className="text-lg font-semibold flex items-center gap-2">
+              <TrendingUp className="w-5 h-5 text-purple-500" />
+              Signups (Last 4 Weeks)
+            </h3>
+            <button onClick={() => setExpandedChart('signups')} className="p-1.5 text-zinc-400 hover:text-white bg-zinc-800/50 hover:bg-zinc-800 rounded-lg transition-colors">
+              <Maximize2 className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="flex-1 w-full min-h-[320px]">
+            {growthData && growthData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={growthData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
+                  <XAxis dataKey="week" stroke="#a1a1aa" fontSize={12} tickLine={false} axisLine={false} />
+                  <YAxis stroke="#a1a1aa" fontSize={12} tickLine={false} axisLine={false} allowDecimals={false} />
+                  <RechartsTooltip 
+                    contentStyle={{ backgroundColor: '#18181b', border: '1px solid #27272a', borderRadius: '12px' }}
+                    cursor={{ fill: '#27272a' }}
+                  />
+                  <Bar dataKey="signups" fill="#a855f7" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex h-full items-center justify-center text-zinc-500">No growth data available</div>
+            )}
+          </div>
+        </div>
+
+        <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6 flex flex-col">
+          <div className="flex justify-between items-center mb-6">
+            <h3 className="text-lg font-semibold flex items-center gap-2">
+              <Users className="w-5 h-5 text-blue-500" />
+              Busy Hours
+            </h3>
+            <button onClick={() => setExpandedChart('attendance')} className="p-1.5 text-zinc-400 hover:text-white bg-zinc-800/50 hover:bg-zinc-800 rounded-lg transition-colors">
+              <Maximize2 className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="flex-1 w-full min-h-[320px]">
             {busyHoursData.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={busyHoursData}>
@@ -305,6 +595,148 @@ export default function AdminDashboardClient({
         </div>
       </div>
 
+      {/* Demographic Analytics */}
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+        <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6 flex flex-col">
+          <h3 className="text-lg font-semibold mb-6 flex items-center gap-2">
+            <Users className="w-5 h-5 text-indigo-500" />
+            Active Members Split
+          </h3>
+          <div className="flex-1 w-full min-h-[320px]">
+            {genderSplitData && genderSplitData.length > 0 && genderSplitData.some(d => d.value > 0) ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={genderSplitData}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={80}
+                    outerRadius={110}
+                    paddingAngle={5}
+                    dataKey="value"
+                  >
+                    {genderSplitData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={COLORS[entry.name]} />
+                    ))}
+                  </Pie>
+                  <RechartsTooltip 
+                    contentStyle={{ backgroundColor: '#18181b', border: '1px solid #27272a', borderRadius: '12px' }}
+                    itemStyle={{ color: '#fff' }}
+                  />
+                  <text x="50%" y="50%" textAnchor="middle" dominantBaseline="middle" className="fill-white font-bold text-2xl">
+                    {genderSplitData.reduce((a, b) => a + b.value, 0)}
+                  </text>
+                  <text x="50%" y="55%" textAnchor="middle" dominantBaseline="middle" className="fill-zinc-500 text-sm mt-2">
+                    Total
+                  </text>
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex h-full items-center justify-center text-zinc-500">No data available</div>
+            )}
+          </div>
+          <div className="flex justify-center gap-6 mt-4">
+            <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-blue-500"></div><span className="text-sm text-zinc-400">Male</span></div>
+            <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-pink-500"></div><span className="text-sm text-zinc-400">Female</span></div>
+          </div>
+        </div>
+
+        <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6 flex flex-col">
+          <h3 className="text-lg font-semibold mb-6 flex items-center gap-2">
+            <DollarSign className="w-5 h-5 text-emerald-500" />
+            Revenue by Demographic
+          </h3>
+          <div className="flex-1 w-full min-h-[320px]">
+            {revenueByGenderData && revenueByGenderData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={revenueByGenderData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
+                  <XAxis dataKey="name" stroke="#a1a1aa" fontSize={12} tickLine={false} axisLine={false} />
+                  <YAxis stroke="#a1a1aa" fontSize={12} tickLine={false} axisLine={false} tickFormatter={v => `PKR ${v}`} />
+                  <RechartsTooltip 
+                    contentStyle={{ backgroundColor: '#18181b', border: '1px solid #27272a', borderRadius: '12px' }}
+                    cursor={{ fill: '#27272a' }}
+                  />
+                  <Bar dataKey="revenue" radius={[4, 4, 0, 0]}>
+                    {revenueByGenderData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={COLORS[entry.name]} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex h-full items-center justify-center text-zinc-500">No data available</div>
+            )}
+          </div>
+        </div>
+
+        <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6 flex flex-col">
+          <h3 className="text-lg font-semibold mb-6 flex items-center gap-2">
+            <Activity className="w-5 h-5 text-purple-500" />
+            Attendance Consistency
+          </h3>
+          <p className="text-xs text-zinc-500 mb-4 text-center">Average monthly visits per active user</p>
+          <div className="flex-1 w-full min-h-[290px]">
+            {attendanceConsistencyData && attendanceConsistencyData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={attendanceConsistencyData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
+                  <XAxis dataKey="name" stroke="#a1a1aa" fontSize={12} tickLine={false} axisLine={false} />
+                  <YAxis stroke="#a1a1aa" fontSize={12} tickLine={false} axisLine={false} />
+                  <RechartsTooltip 
+                    contentStyle={{ backgroundColor: '#18181b', border: '1px solid #27272a', borderRadius: '12px' }}
+                    cursor={{ fill: '#27272a' }}
+                  />
+                  <Bar dataKey="visits" radius={[4, 4, 0, 0]}>
+                    {attendanceConsistencyData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={COLORS[entry.name]} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex h-full items-center justify-center text-zinc-500">No data available</div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Hardware Controls */}
+      <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6 backdrop-blur-sm">
+        <h3 className="text-lg font-semibold mb-6 flex items-center gap-2">
+          <Shield className="w-5 h-5 text-orange-500" />
+          Hardware & Security Override
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <button 
+            onClick={() => handleUpdateDoorMode('unlock')}
+            disabled={loadingHardware}
+            className={`p-4 rounded-xl border flex flex-col items-center justify-center gap-2 transition-all ${doorMode === 'unlock' ? 'bg-orange-500/20 border-orange-500 text-orange-400' : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:border-zinc-700'}`}
+          >
+            <Unlock className="w-6 h-6" />
+            <span className="font-medium">Remote Unlock (1-time)</span>
+          </button>
+          
+          <button 
+            onClick={() => handleUpdateDoorMode('locked')}
+            disabled={loadingHardware}
+            className={`p-4 rounded-xl border flex flex-col items-center justify-center gap-2 transition-all ${doorMode === 'locked' ? 'bg-red-500/20 border-red-500 text-red-400' : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:border-zinc-700'}`}
+          >
+            <Lock className="w-6 h-6" />
+            <span className="font-medium">Lock Sensor (After Hours)</span>
+          </button>
+          
+          <button 
+            onClick={() => handleUpdateDoorMode('normal')}
+            disabled={loadingHardware}
+            className={`p-4 rounded-xl border flex flex-col items-center justify-center gap-2 transition-all ${doorMode === 'normal' ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:border-zinc-700'}`}
+          >
+            <Activity className="w-6 h-6" />
+            <span className="font-medium">Normal Mode</span>
+          </button>
+        </div>
+      </div>
+
       {/* Management Section */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         {/* Member Management */}
@@ -317,13 +749,19 @@ export default function AdminDashboardClient({
               </h3>
               <p className="text-sm text-zinc-400 mt-1">View and remove gym members.</p>
             </div>
-            <div className="w-full md:w-64">
+            <div className="flex w-full md:w-auto gap-3">
+              <button 
+                onClick={() => setShowDeleted(!showDeleted)}
+                className={`px-4 py-2 text-sm font-medium rounded-xl border transition-all ${showDeleted ? 'bg-red-500/20 text-red-400 border-red-500/50' : 'bg-zinc-950 text-zinc-400 border-zinc-800 hover:border-zinc-700'}`}
+              >
+                {showDeleted ? 'Showing Deleted' : 'Recently Deleted'}
+              </button>
               <input
                 type="text"
                 placeholder="Search by name or phone..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full px-4 py-2 bg-zinc-950 border border-zinc-800 rounded-xl text-sm focus:ring-1 focus:ring-purple-500 outline-none text-white transition-all placeholder:text-zinc-600"
+                className="w-full md:w-64 px-4 py-2 bg-zinc-950 border border-zinc-800 rounded-xl text-sm focus:ring-1 focus:ring-purple-500 outline-none text-white transition-all placeholder:text-zinc-600"
               />
             </div>
           </div>
@@ -354,7 +792,15 @@ export default function AdminDashboardClient({
                 ) : filteredMembers.map((member) => (
                   <tr key={member.id} className="hover:bg-zinc-800/20 transition-colors">
                     <td className="px-6 py-4">
-                      <div className="font-medium text-white">{member.name}</div>
+                      <div className="font-medium text-white flex items-center gap-2">
+                        {member.name}
+                        {member.gender && (
+                          <div 
+                            className={`w-2 h-2 rounded-full ${member.gender === 'female' ? 'bg-pink-500' : 'bg-blue-500'}`} 
+                            title={member.gender === 'female' ? 'Female' : 'Male'}
+                          ></div>
+                        )}
+                      </div>
                     </td>
                     <td className="px-6 py-4 text-zinc-400">
                       {member.phone}
@@ -363,14 +809,35 @@ export default function AdminDashboardClient({
                       <span className="text-sm text-zinc-300">{member.plans?.name || 'Unknown'}</span>
                     </td>
                     <td className="px-6 py-4 text-right">
-                      <button
-                        onClick={() => handleDeleteMember(member.id)}
-                        disabled={deletingId === member.id}
-                        className="p-2 text-zinc-400 hover:text-red-400 hover:bg-red-400/10 rounded-xl transition-colors disabled:opacity-50 inline-block"
-                        title="Delete Member"
-                      >
-                        {deletingId === member.id ? <Loader2 className="w-5 h-5 animate-spin" /> : <Trash2 className="w-5 h-5" />}
-                      </button>
+                      {showDeleted ? (
+                        <>
+                          <button
+                            onClick={() => handleRecoverMember(member.id)}
+                            disabled={deletingId === member.id}
+                            className="p-2 text-emerald-400 hover:bg-emerald-400/10 rounded-xl transition-colors disabled:opacity-50 inline-block mr-2"
+                            title="Recover Member"
+                          >
+                            <RefreshCcw className="w-5 h-5" />
+                          </button>
+                          <button
+                            onClick={() => handleHardDeleteMember(member.id)}
+                            disabled={deletingId === member.id}
+                            className="p-2 text-zinc-400 hover:text-red-400 hover:bg-red-400/10 rounded-xl transition-colors disabled:opacity-50 inline-block"
+                            title="Permanently Delete"
+                          >
+                            {deletingId === member.id ? <Loader2 className="w-5 h-5 animate-spin" /> : <Trash2 className="w-5 h-5" />}
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          onClick={() => handleDeleteMember(member.id)}
+                          disabled={deletingId === member.id}
+                          className="p-2 text-zinc-400 hover:text-red-400 hover:bg-red-400/10 rounded-xl transition-colors disabled:opacity-50 inline-block"
+                          title="Move to Recently Deleted"
+                        >
+                          {deletingId === member.id ? <Loader2 className="w-5 h-5 animate-spin" /> : <Trash2 className="w-5 h-5" />}
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -403,7 +870,7 @@ export default function AdminDashboardClient({
               <div className="grid grid-cols-2 gap-2">
                 <input
                   type="number"
-                  placeholder="Price ($)"
+                  placeholder="Price (PKR)"
                   required
                   min="0"
                   step="0.01"
@@ -445,7 +912,7 @@ export default function AdminDashboardClient({
                 <div key={plan.id} className="p-4 flex items-center justify-between hover:bg-zinc-800/10 transition-colors">
                   <div>
                     <h4 className="font-semibold text-white text-sm">{plan.name}</h4>
-                    <p className="text-xs text-zinc-400 mt-0.5">${plan.price} / {plan.duration_days} Days</p>
+                    <p className="text-xs text-zinc-400 mt-0.5">PKR {plan.price} / {plan.duration_days} Days</p>
                   </div>
                   <button
                     onClick={() => handleDeletePlan(plan.id)}
@@ -460,6 +927,240 @@ export default function AdminDashboardClient({
           </div>
         </div>
       </div>
+
+      {/* Schedule Management */}
+      <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl overflow-hidden backdrop-blur-sm flex flex-col md:flex-row">
+        <div className="p-6 border-b md:border-b-0 md:border-r border-zinc-800 flex-1">
+          <h3 className="text-lg font-semibold flex items-center gap-2 mb-1">
+            <Clock className="w-5 h-5 text-blue-500" />
+            Gym Schedule Management
+          </h3>
+          <p className="text-sm text-zinc-400 mb-6">Define active hours for each demographic. Scans outside these hours are denied.</p>
+          
+          <form onSubmit={handleAddSchedule} className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div>
+                <label className="text-xs text-zinc-500 uppercase tracking-wider mb-1 block">Demographic</label>
+                <select
+                  required
+                  value={newScheduleGender}
+                  onChange={(e) => setNewScheduleGender(e.target.value)}
+                  className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-sm focus:ring-1 focus:ring-blue-500/50 outline-none text-white transition-all appearance-none"
+                >
+                  <option value="male">Male</option>
+                  <option value="female">Female</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-zinc-500 uppercase tracking-wider mb-1 block">Start Time</label>
+                <input
+                  type="time"
+                  required
+                  value={newScheduleStart}
+                  onChange={(e) => setNewScheduleStart(e.target.value)}
+                  className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-sm focus:ring-1 focus:ring-blue-500/50 outline-none text-white transition-all [color-scheme:dark]"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-zinc-500 uppercase tracking-wider mb-1 block">End Time</label>
+                <input
+                  type="time"
+                  required
+                  value={newScheduleEnd}
+                  onChange={(e) => setNewScheduleEnd(e.target.value)}
+                  className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-sm focus:ring-1 focus:ring-blue-500/50 outline-none text-white transition-all [color-scheme:dark]"
+                />
+              </div>
+            </div>
+            <button
+              type="submit"
+              disabled={submittingSchedule}
+              className="py-2.5 px-4 bg-blue-500 hover:bg-blue-600 text-white font-medium text-sm rounded-lg transition-all flex items-center justify-center gap-1.5 w-full md:w-auto"
+            >
+              {submittingSchedule ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Add Time Slot'}
+            </button>
+          </form>
+        </div>
+
+        <div className="flex-1 bg-zinc-900/20 max-h-[300px] overflow-y-auto divide-y divide-zinc-800/40">
+          {loadingSchedules ? (
+            <div className="p-6 text-center text-zinc-500">
+              <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2" />
+              Loading schedules...
+            </div>
+          ) : schedules.length === 0 ? (
+            <div className="p-6 text-center text-zinc-500">No schedules defined. The gym is currently open to everyone.</div>
+          ) : (
+            schedules.map((schedule) => (
+              <div key={schedule.id} className="p-4 flex items-center justify-between hover:bg-zinc-800/10 transition-colors">
+                <div className="flex items-center gap-4">
+                  <div className={`w-2 h-2 rounded-full ${schedule.gender === 'female' ? 'bg-pink-500' : 'bg-blue-500'}`}></div>
+                  <div>
+                    <h4 className="font-semibold text-white text-sm capitalize">{schedule.gender} Timing</h4>
+                    <p className="text-xs text-zinc-400 mt-0.5">{schedule.start_time.substring(0,5)} to {schedule.end_time.substring(0,5)}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => handleDeleteSchedule(schedule.id)}
+                  disabled={deletingScheduleId === schedule.id}
+                  className="p-1.5 text-zinc-500 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {deletingScheduleId === schedule.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
+      {/* Analytics Modal */}
+      {expandedChart && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="p-6 border-b border-zinc-800 flex justify-between items-center bg-zinc-900/50">
+              <h2 className="text-xl font-bold flex items-center gap-2">
+                {expandedChart === 'revenue' && <><Activity className="w-6 h-6 text-emerald-500"/> Revenue Deep Dive</>}
+                {expandedChart === 'signups' && <><TrendingUp className="w-6 h-6 text-purple-500"/> Signups Deep Dive</>}
+                {expandedChart === 'attendance' && <><Users className="w-6 h-6 text-blue-500"/> Busy Hours Deep Dive</>}
+              </h2>
+              <button onClick={() => setExpandedChart(null)} className="p-2 text-zinc-400 hover:text-white rounded-lg hover:bg-zinc-800 transition-colors">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            
+            <div className="p-6 flex-1 overflow-y-auto">
+              <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
+                {['7d', '30d', '3m', 'ytd'].map(tf => (
+                  <button 
+                    key={tf}
+                    onClick={() => setAnalyticsTimeframe(tf)}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${analyticsTimeframe === tf ? 'bg-purple-500 text-white' : 'bg-zinc-900 text-zinc-400 hover:bg-zinc-800 border border-zinc-800'}`}
+                  >
+                    {tf === '7d' ? 'Past 7 Days' : tf === '30d' ? 'Past 30 Days' : tf === '3m' ? 'Past 3 Months' : 'Year to Date'}
+                  </button>
+                ))}
+              </div>
+
+              {loadingAnalytics ? (
+                <div className="py-24 flex flex-col items-center justify-center text-zinc-500">
+                  <Loader2 className="w-8 h-8 animate-spin mb-4 text-purple-500" />
+                  Loading analytics data...
+                </div>
+              ) : analyticsData ? (
+                <>
+                  {/* Big Chart */}
+                  <div className="h-80 w-full mb-8 bg-zinc-900/30 rounded-xl p-4 border border-zinc-800/50">
+                    <ResponsiveContainer width="100%" height="100%">
+                      {expandedChart === 'revenue' ? (
+                        <LineChart data={analyticsData.chart}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
+                          <XAxis dataKey="name" stroke="#a1a1aa" fontSize={12} tickLine={false} axisLine={false} />
+                          <YAxis stroke="#a1a1aa" fontSize={12} tickLine={false} axisLine={false} tickFormatter={v => `PKR ${v}`} />
+                          <RechartsTooltip contentStyle={{ backgroundColor: '#18181b', border: '1px solid #27272a', borderRadius: '12px' }} />
+                          <Line type="monotone" dataKey="value" stroke="#34d399" strokeWidth={3} dot={{ fill: '#10b981', strokeWidth: 2 }} activeDot={{ r: 8 }} />
+                        </LineChart>
+                      ) : expandedChart === 'signups' ? (
+                        <BarChart data={analyticsData.chart}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
+                          <XAxis dataKey="name" stroke="#a1a1aa" fontSize={12} tickLine={false} axisLine={false} />
+                          <YAxis stroke="#a1a1aa" fontSize={12} tickLine={false} axisLine={false} allowDecimals={false} />
+                          <RechartsTooltip contentStyle={{ backgroundColor: '#18181b', border: '1px solid #27272a', borderRadius: '12px' }} cursor={{ fill: '#27272a' }} />
+                          <Bar dataKey="value" fill="#a855f7" radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                      ) : (
+                        <BarChart data={analyticsData.chart}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
+                          <XAxis dataKey="name" stroke="#a1a1aa" fontSize={12} tickLine={false} axisLine={false} />
+                          <YAxis stroke="#a1a1aa" fontSize={12} tickLine={false} axisLine={false} />
+                          <RechartsTooltip contentStyle={{ backgroundColor: '#18181b', border: '1px solid #27272a', borderRadius: '12px' }} cursor={{ fill: '#27272a' }} />
+                          <Bar dataKey="value" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                      )}
+                    </ResponsiveContainer>
+                  </div>
+
+                  {/* Raw Data Table */}
+                  <div>
+                    <h3 className="text-lg font-semibold mb-4">Raw Data Overview</h3>
+                    <div className="overflow-x-auto border border-zinc-800 rounded-xl">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-zinc-900 border-b border-zinc-800">
+                            {expandedChart === 'revenue' && (
+                              <>
+                                <th className="px-4 py-3 text-xs font-medium text-zinc-400 uppercase">Date</th>
+                                <th className="px-4 py-3 text-xs font-medium text-zinc-400 uppercase">Member Name</th>
+                                <th className="px-4 py-3 text-xs font-medium text-zinc-400 uppercase">Next Due Date</th>
+                                <th className="px-4 py-3 text-xs font-medium text-zinc-400 uppercase text-right">Amount (PKR)</th>
+                              </>
+                            )}
+                            {expandedChart === 'signups' && (
+                              <>
+                                <th className="px-4 py-3 text-xs font-medium text-zinc-400 uppercase">Join Date</th>
+                                <th className="px-4 py-3 text-xs font-medium text-zinc-400 uppercase">Member Name</th>
+                                <th className="px-4 py-3 text-xs font-medium text-zinc-400 uppercase">Phone</th>
+                                <th className="px-4 py-3 text-xs font-medium text-zinc-400 uppercase">Gender</th>
+                                <th className="px-4 py-3 text-xs font-medium text-zinc-400 uppercase">Plan</th>
+                                <th className="px-4 py-3 text-xs font-medium text-zinc-400 uppercase">Next Due Date</th>
+                              </>
+                            )}
+                            {expandedChart === 'attendance' && (
+                              <>
+                                <th className="px-4 py-3 text-xs font-medium text-zinc-400 uppercase">Date</th>
+                                <th className="px-4 py-3 text-xs font-medium text-zinc-400 uppercase">Time</th>
+                                <th className="px-4 py-3 text-xs font-medium text-zinc-400 uppercase">Member Name</th>
+                                <th className="px-4 py-3 text-xs font-medium text-zinc-400 uppercase">Gender</th>
+                              </>
+                            )}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-zinc-800/50 text-sm">
+                          {analyticsData.raw?.length === 0 ? (
+                            <tr>
+                              <td colSpan="6" className="px-4 py-8 text-center text-zinc-500">No data found for this timeframe.</td>
+                            </tr>
+                          ) : (
+                            analyticsData.raw?.map((row, i) => (
+                              <tr key={i} className="hover:bg-zinc-900/50 transition-colors">
+                                {expandedChart === 'revenue' && (
+                                  <>
+                                    <td className="px-4 py-3 text-zinc-300">{new Date(row.date).toLocaleDateString()}</td>
+                                    <td className="px-4 py-3 font-medium text-white">{row.members?.name || 'Unknown'}</td>
+                                    <td className="px-4 py-3 text-zinc-400">{row.members?.next_due_date ? new Date(row.members.next_due_date).toLocaleDateString() : 'N/A'}</td>
+                                    <td className="px-4 py-3 text-right font-medium text-emerald-400">PKR {parseFloat(row.amount).toFixed(2)}</td>
+                                  </>
+                                )}
+                                {expandedChart === 'signups' && (
+                                  <>
+                                    <td className="px-4 py-3 text-zinc-300">{new Date(row.join_date).toLocaleDateString()}</td>
+                                    <td className="px-4 py-3 font-medium text-white">{row.name}</td>
+                                    <td className="px-4 py-3 text-zinc-400">{row.phone || 'N/A'}</td>
+                                    <td className="px-4 py-3 text-zinc-400 capitalize">{row.gender || 'N/A'}</td>
+                                    <td className="px-4 py-3 text-zinc-400">{row.plans?.name || 'N/A'}</td>
+                                    <td className="px-4 py-3 text-zinc-400">{row.next_due_date ? new Date(row.next_due_date).toLocaleDateString() : 'N/A'}</td>
+                                  </>
+                                )}
+                                {expandedChart === 'attendance' && (
+                                  <>
+                                    <td className="px-4 py-3 text-zinc-300">{new Date(row.timestamp).toLocaleDateString()}</td>
+                                    <td className="px-4 py-3 text-zinc-300">{new Date(row.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
+                                    <td className="px-4 py-3 font-medium text-white">{row.members?.name || 'Unknown'}</td>
+                                    <td className="px-4 py-3 text-zinc-400 capitalize">{row.members?.gender || 'N/A'}</td>
+                                  </>
+                                )}
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

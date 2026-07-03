@@ -14,6 +14,11 @@ export default async function AdminPage() {
   let totalMonthlyRevenue = 0
   let revenueData = []
   let busyHoursData = []
+  let growthData = []
+
+  let genderSplitData = []
+  let revenueByGenderData = []
+  let attendanceConsistencyData = []
 
   if (isDemo) {
     activeMembersCount = 142
@@ -42,13 +47,37 @@ export default async function AdminPage() {
       { time: '20:00', visits: 41 },
       { time: '22:00', visits: 10 }
     ]
+
+    // Mock growth data
+    growthData = [
+      { week: 'Week 1', signups: 5 },
+      { week: 'Week 2', signups: 8 },
+      { week: 'Week 3', signups: 4 },
+      { week: 'Week 4', signups: 11 }
+    ]
+
+    genderSplitData = [
+      { name: 'Male', value: 85 },
+      { name: 'Female', value: 57 }
+    ]
+
+    revenueByGenderData = [
+      { name: 'Male', revenue: 4500 },
+      { name: 'Female', revenue: 2950 }
+    ]
+
+    attendanceConsistencyData = [
+      { name: 'Male', visits: 12.5 },
+      { name: 'Female', visits: 8.2 }
+    ]
   } else {
     const supabase = await createClient()
 
     // Fetch metrics
-    const { data: activeMembers } = await supabase
+    const { data: activeMembersData } = await supabase
       .from('members')
-      .select('id', { count: 'exact' })
+      .select('id, gender')
+      .is('deleted_at', null)
       .gte('next_due_date', new Date().toISOString())
 
     const { data: newSignups } = await supabase
@@ -58,12 +87,12 @@ export default async function AdminPage() {
 
     const { data: payments } = await supabase
       .from('payments')
-      .select('amount, date')
+      .select('amount, date, members!inner(gender)')
       .gte('date', new Date(new Date().setMonth(new Date().getMonth() - 6)).toISOString())
       
     const { data: attendance } = await supabase
       .from('attendance')
-      .select('timestamp')
+      .select('timestamp, members!inner(gender)')
       .gte('timestamp', new Date(new Date().setMonth(new Date().getMonth() - 1)).toISOString())
 
     // Calculate total monthly revenue
@@ -71,7 +100,7 @@ export default async function AdminPage() {
     const thisMonthPayments = payments?.filter(p => p.date >= thisMonthStart) || []
     totalMonthlyRevenue = thisMonthPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0)
 
-    activeMembersCount = activeMembers?.length || 0
+    activeMembersCount = activeMembersData?.length || 0
     newSignupsCount = newSignups?.length || 0
 
     // Format data for Line Chart (Revenue Growth)
@@ -95,6 +124,58 @@ export default async function AdminPage() {
       time: `${hour}:00`,
       visits: hoursCount[hour]
     })).sort((a, b) => parseInt(a.time) - parseInt(b.time))
+
+    // Format data for Growth Chart (New Signups past 4 weeks)
+    const { data: recentSignups } = await supabase
+      .from('members')
+      .select('join_date')
+      .gte('join_date', new Date(new Date().setDate(new Date().getDate() - 28)).toISOString())
+
+    const weeksCount = { 'Week 1': 0, 'Week 2': 0, 'Week 3': 0, 'Week 4': 0 }
+    const now = new Date()
+    recentSignups?.forEach(m => {
+      const daysAgo = Math.floor((now - new Date(m.join_date)) / (1000 * 60 * 60 * 24))
+      if (daysAgo <= 7) weeksCount['Week 4']++
+      else if (daysAgo <= 14) weeksCount['Week 3']++
+      else if (daysAgo <= 21) weeksCount['Week 2']++
+      else if (daysAgo <= 28) weeksCount['Week 1']++
+    })
+    growthData = Object.keys(weeksCount).map(w => ({ week: w, signups: weeksCount[w] }))
+
+    // Calculate Demographic Stats
+    let males = 0, females = 0
+    activeMembersData?.forEach(m => {
+      if (m.gender === 'female') females++
+      else if (m.gender === 'male') males++
+    })
+    genderSplitData = [
+      { name: 'Male', value: males },
+      { name: 'Female', value: females }
+    ]
+
+    let maleRevenue = 0, femaleRevenue = 0
+    thisMonthPayments?.forEach(p => {
+      const g = p.members?.gender
+      if (g === 'female') femaleRevenue += parseFloat(p.amount)
+      else if (g === 'male') maleRevenue += parseFloat(p.amount)
+    })
+    revenueByGenderData = [
+      { name: 'Male', revenue: maleRevenue },
+      { name: 'Female', revenue: femaleRevenue }
+    ]
+
+    let maleVisits = 0, femaleVisits = 0
+    attendance?.forEach(a => {
+      const g = a.members?.gender
+      if (g === 'female') femaleVisits++
+      else if (g === 'male') maleVisits++
+    })
+    
+    // Average monthly visits per active user (prevent division by zero)
+    attendanceConsistencyData = [
+      { name: 'Male', visits: males > 0 ? (maleVisits / males).toFixed(1) : 0 },
+      { name: 'Female', visits: females > 0 ? (femaleVisits / females).toFixed(1) : 0 }
+    ]
   }
 
   return (
@@ -119,6 +200,10 @@ export default async function AdminPage() {
           newSignupsCount={newSignupsCount}
           revenueData={revenueData}
           busyHoursData={busyHoursData}
+          growthData={growthData}
+          genderSplitData={genderSplitData}
+          revenueByGenderData={revenueByGenderData}
+          attendanceConsistencyData={attendanceConsistencyData}
         />
       </div>
     </div>
