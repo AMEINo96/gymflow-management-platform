@@ -17,6 +17,7 @@ export default function AdminDashboardClient({
 }) {
   const [members, setMembers] = useState([])
   const [plans, setPlans] = useState([])
+  const [searchTerm, setSearchTerm] = useState('')
   const [loadingMembers, setLoadingMembers] = useState(true)
   const [loadingPlans, setLoadingPlans] = useState(true)
   const [deletingId, setDeletingId] = useState(null)
@@ -202,6 +203,11 @@ export default function AdminDashboardClient({
     }
   }
 
+  const filteredMembers = members.filter(member => 
+    member.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    (member.phone && member.phone.toLowerCase().includes(searchTerm.toLowerCase()))
+  )
+
   return (
     <div className="space-y-8">
       {/* Metric Cards */}
@@ -303,12 +309,23 @@ export default function AdminDashboardClient({
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         {/* Member Management */}
         <div className="xl:col-span-2 bg-zinc-900/50 border border-zinc-800 rounded-2xl overflow-hidden backdrop-blur-sm">
-          <div className="p-6 border-b border-zinc-800">
-            <h3 className="text-lg font-semibold flex items-center gap-2">
-              <Users className="w-5 h-5 text-purple-500" />
-              Member Management
-            </h3>
-            <p className="text-sm text-zinc-400 mt-1">View and remove gym members.</p>
+          <div className="p-6 border-b border-zinc-800 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <h3 className="text-lg font-semibold flex items-center gap-2">
+                <Users className="w-5 h-5 text-purple-500" />
+                Member Management
+              </h3>
+              <p className="text-sm text-zinc-400 mt-1">View and remove gym members.</p>
+            </div>
+            <div className="w-full md:w-64">
+              <input
+                type="text"
+                placeholder="Search by name or phone..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full px-4 py-2 bg-zinc-950 border border-zinc-800 rounded-xl text-sm focus:ring-1 focus:ring-purple-500 outline-none text-white transition-all placeholder:text-zinc-600"
+              />
+            </div>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
@@ -328,13 +345,13 @@ export default function AdminDashboardClient({
                       Loading members...
                     </td>
                   </tr>
-                ) : members.length === 0 ? (
+                ) : filteredMembers.length === 0 ? (
                   <tr>
                     <td colSpan="4" className="px-6 py-12 text-center text-zinc-500">
-                      No members found.
+                      {searchTerm ? 'No members match your search.' : 'No members found.'}
                     </td>
                   </tr>
-                ) : members.map((member) => (
+                ) : filteredMembers.map((member) => (
                   <tr key={member.id} className="hover:bg-zinc-800/20 transition-colors">
                     <td className="px-6 py-4">
                       <div className="font-medium text-white">{member.name}</div>

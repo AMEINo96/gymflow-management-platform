@@ -107,7 +107,7 @@ export default function StaffDashboard() {
       const updated = [newMem, ...stored]
       localStorage.setItem('gymflow_members', JSON.stringify(updated))
       setMembers(updated)
-      return
+      return newMem
     }
 
     // 1. Insert Member
@@ -138,6 +138,7 @@ export default function StaffDashboard() {
     if (paymentError) throw paymentError
     
     await fetchData()
+    return newMember
   }
 
   const handleMarkPaid = async (member) => {
