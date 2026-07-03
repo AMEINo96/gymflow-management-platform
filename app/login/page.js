@@ -18,7 +18,7 @@ export default function Login() {
     setLoading(true)
     setError(null)
     
-    const { data, error } = await supabase.auth.signInWithPassword({
+    const { data: authData, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     })
@@ -26,8 +26,18 @@ export default function Login() {
     if (error) {
       setError(error.message)
       setLoading(false)
+    } else if (authData?.user) {
+      // Fetch user role from profile to redirect correctly
+      const { data: profile } = await supabase
+        .from('users')
+        .select('role')
+        .eq('id', authData.user.id)
+        .single()
+
+      const role = profile?.role || 'staff'
+      window.location.href = (role === 'admin' ? '/admin' : '/staff') + '?t=' + Date.now()
     } else {
-      window.location.href = '/staff?t=' + Date.now()
+      setLoading(false)
     }
   }
 
