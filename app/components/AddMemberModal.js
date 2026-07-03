@@ -7,6 +7,7 @@ export default function AddMemberModal({ isOpen, onClose, plans, onAdd }) {
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
   const [planId, setPlanId] = useState('')
+  const [fingerprintId, setFingerprintId] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
@@ -30,12 +31,14 @@ export default function AddMemberModal({ isOpen, onClose, plans, onAdd }) {
         name,
         phone,
         plan_id: planId,
-        plan: selectedPlan
+        plan: selectedPlan,
+        fingerprint_id: fingerprintId ? parseInt(fingerprintId) : null
       })
       
       setName('')
       setPhone('')
       setPlanId('')
+      setFingerprintId('')
       onClose()
     } catch (err) {
       setError(err.message)
@@ -103,6 +106,18 @@ export default function AddMemberModal({ isOpen, onClose, plans, onAdd }) {
                 </option>
               ))}
             </select>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-zinc-400 uppercase tracking-wider ml-1">Biometric Fingerprint ID (Optional)</label>
+            <input
+              type="number"
+              value={fingerprintId}
+              onChange={(e) => setFingerprintId(e.target.value)}
+              className="w-full px-4 py-3 bg-zinc-950 border border-zinc-800 rounded-xl focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 outline-none transition-all placeholder:text-zinc-600 text-white"
+              placeholder="e.g. 104"
+              min="1"
+            />
           </div>
 
           <div className="pt-4">

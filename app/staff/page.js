@@ -41,9 +41,9 @@ export default function StaffDashboard() {
     if (isDemo) {
       // Load plans
       const localPlans = [
-        { id: 'p1', name: 'Monthly', price: 50, duration_days: 30 },
-        { id: 'p2', name: '3-Month', price: 135, duration_days: 90 },
-        { id: 'p3', name: 'Annual', price: 500, duration_days: 365 }
+        { id: 'p1', name: 'Basic', price: 30, duration_days: 30 },
+        { id: 'p2', name: 'Advance', price: 75, duration_days: 90 },
+        { id: 'p3', name: 'Super', price: 250, duration_days: 365 }
       ]
       setPlans(localPlans)
 
@@ -51,9 +51,9 @@ export default function StaffDashboard() {
       let storedMembers = localStorage.getItem('gymflow_members')
       if (!storedMembers) {
         const defaultMembers = [
-          { id: 'm1', name: 'Arnold Schwarzenegger', phone: '+1234567890', join_date: '2026-01-01', next_due_date: '2026-08-01', fingerprint_id: 1, plan_id: 'p1', plans: { name: 'Monthly', price: 50, duration_days: 30 } },
-          { id: 'm2', name: 'Lou Ferrigno', phone: '+1987654321', join_date: '2026-02-01', next_due_date: '2026-07-05', fingerprint_id: null, plan_id: 'p2', plans: { name: '3-Month', price: 135, duration_days: 90 } },
-          { id: 'm3', name: 'Ronnie Coleman', phone: '+1122334455', join_date: '2026-03-01', next_due_date: '2026-06-30', fingerprint_id: 3, plan_id: 'p3', plans: { name: 'Annual', price: 500, duration_days: 365 } }
+          { id: 'm1', name: 'Arnold Schwarzenegger', phone: '+1234567890', join_date: '2026-01-01', next_due_date: '2026-08-01', fingerprint_id: 1, plan_id: 'p1', plans: { name: 'Basic', price: 30, duration_days: 30 } },
+          { id: 'm2', name: 'Lou Ferrigno', phone: '+1987654321', join_date: '2026-02-01', next_due_date: '2026-07-05', fingerprint_id: null, plan_id: 'p2', plans: { name: 'Advance', price: 75, duration_days: 90 } },
+          { id: 'm3', name: 'Ronnie Coleman', phone: '+1122334455', join_date: '2026-03-01', next_due_date: '2026-06-30', fingerprint_id: 3, plan_id: 'p3', plans: { name: 'Super', price: 250, duration_days: 365 } }
         ]
         localStorage.setItem('gymflow_members', JSON.stringify(defaultMembers))
         storedMembers = JSON.stringify(defaultMembers)
@@ -97,7 +97,7 @@ export default function StaffDashboard() {
         plan_id: memberData.plan_id,
         join_date: today.toISOString().split('T')[0],
         next_due_date: nextDueDate.toISOString().split('T')[0],
-        fingerprint_id: null,
+        fingerprint_id: memberData.fingerprint_id || null,
         plans: {
           name: memberData.plan.name,
           price: memberData.plan.price,
@@ -119,6 +119,7 @@ export default function StaffDashboard() {
         plan_id: memberData.plan_id,
         join_date: today.toISOString().split('T')[0],
         next_due_date: nextDueDate.toISOString().split('T')[0],
+        fingerprint_id: memberData.fingerprint_id || null,
       })
       .select()
       .single()

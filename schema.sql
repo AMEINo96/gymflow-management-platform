@@ -29,9 +29,9 @@ CREATE TABLE plans (
 
 -- Pre-populate plans
 INSERT INTO plans (name, duration_days, price) VALUES
-('Monthly', 30, 50.00),
-('3-Month', 90, 135.00),
-('Annual', 365, 500.00);
+('Basic', 30, 30.00),
+('Advance', 90, 75.00),
+('Super', 365, 250.00);
 
 -- ==========================================
 -- Table: members
