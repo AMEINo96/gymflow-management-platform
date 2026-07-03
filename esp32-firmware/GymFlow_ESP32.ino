@@ -42,6 +42,10 @@ const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
 // Deployed example: "https://gymflow.vercel.app"
 const char* SERVER_URL = "http://192.168.1.100:3000";
 
+// Hardware API Key (MUST match HARDWARE_API_KEY in your server's .env file)
+// Generate one with:  openssl rand -hex 32
+const char* HARDWARE_API_KEY = "PASTE_YOUR_SECRET_KEY_HERE";
+
 // Relay Configuration
 // Set to true  if your relay module opens on HIGH signal (Active HIGH)
 // Set to false if your relay module opens on LOW  signal (Active LOW)
@@ -200,6 +204,7 @@ void pollCheckMode() {
 
   HTTPClient http;
   http.begin(url);
+  http.addHeader("X-Hardware-Key", HARDWARE_API_KEY);
   http.setTimeout(5000);
 
   int httpCode = http.GET();
@@ -253,6 +258,7 @@ String sendAttendance(int fingerprintId) {
   HTTPClient http;
   http.begin(url);
   http.addHeader("Content-Type", "application/json");
+  http.addHeader("X-Hardware-Key", HARDWARE_API_KEY);
   http.setTimeout(5000);
 
   JsonDocument doc;
@@ -302,6 +308,7 @@ bool sendSavePrint(String memberId, int fingerprintId) {
   HTTPClient http;
   http.begin(url);
   http.addHeader("Content-Type", "application/json");
+  http.addHeader("X-Hardware-Key", HARDWARE_API_KEY);
   http.setTimeout(5000);
 
   JsonDocument doc;

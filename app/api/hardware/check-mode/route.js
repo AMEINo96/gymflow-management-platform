@@ -1,7 +1,11 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
+import { validateHardwareRequest } from '@/utils/hardware-auth'
 
 export async function GET(request) {
+  const authError = validateHardwareRequest(request)
+  if (authError) return authError
+
   // Use the Service Role Key for backend hardware endpoints to securely bypass RLS
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
