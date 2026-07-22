@@ -5,12 +5,12 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer,
   BarChart, Bar, PieChart, Pie, Cell
 } from 'recharts'
-import { Users, DollarSign, UserPlus, Activity, Trash2, Loader2, TrendingUp, Lock, Unlock, Shield, RefreshCcw, Maximize2, X, Clock } from 'lucide-react'
+import { Users, DollarSign, UserPlus, Activity, Trash2, Loader2, TrendingUp, Lock, Unlock, Shield, RefreshCcw, Maximize2, X, Clock, ChevronUp, ChevronDown } from 'lucide-react'
 import { createClient } from '@/utils/supabase/client'
 
 const COLORS = {
-  Male: '#3b82f6', // blue-500
-  Female: '#ec4899', // pink-500
+  Male: '#ef4444', // red-500
+  Female: '#a1a1aa', // zinc-400
 }
 
 export default function AdminDashboardClient({ 
@@ -32,6 +32,9 @@ export default function AdminDashboardClient({
   const [deletingId, setDeletingId] = useState(null)
   const [deletingPlanId, setDeletingPlanId] = useState(null)
   const [showDeleted, setShowDeleted] = useState(false)
+
+  // Member Modal State
+  const [selectedMember, setSelectedMember] = useState(null)
 
   // Analytics Modal State
   const [expandedChart, setExpandedChart] = useState(null)
@@ -56,6 +59,10 @@ export default function AdminDashboardClient({
   const [newScheduleEnd, setNewScheduleEnd] = useState('')
   const [submittingSchedule, setSubmittingSchedule] = useState(false)
   const [deletingScheduleId, setDeletingScheduleId] = useState(null)
+  
+  // Mobile accordion state
+  const [isPlansOpen, setIsPlansOpen] = useState(false)
+  const [isScheduleOpen, setIsScheduleOpen] = useState(false)
 
   const supabase = createClient()
 
@@ -215,7 +222,8 @@ export default function AdminDashboardClient({
         .from('members')
         .select(`
           *,
-          plans:plan_id (name)
+          plans:plan_id (name),
+          attendance (timestamp)
         `)
         .order('created_at', { ascending: false })
       
@@ -253,8 +261,19 @@ export default function AdminDashboardClient({
     setDeletingId(id)
     if (typeof document !== 'undefined' && document.cookie.includes('gymflow_demo_role')) return
     try {
+      const memberToDelete = members.find(m => m.id === id)
+      
       const { error } = await supabase.from('members').delete().eq('id', id)
       if (error) throw error
+
+      // Clean up the photo from storage bucket if it exists
+      if (memberToDelete?.image_url) {
+        const fileName = memberToDelete.image_url.split('/').pop()
+        if (fileName) {
+          await supabase.storage.from('member_photos').remove([fileName])
+        }
+      }
+
       await fetchMembers()
     } catch (error) {
       alert('Failed to permanently delete member')
@@ -459,36 +478,36 @@ export default function AdminDashboardClient({
   )
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-4 md:space-y-8">
       {/* Metric Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6 backdrop-blur-sm relative overflow-hidden">
+      <div className="flex overflow-x-auto snap-x md:grid md:grid-cols-3 gap-4 md:gap-6 pb-2 md:pb-0 -mx-4 px-4 md:mx-0 md:px-0">
+        <div className="min-w-[85vw] md:min-w-0 snap-center shrink-0 bg-zinc-900/50 border border-zinc-800 rounded-2xl p-4 md:p-6 backdrop-blur-sm relative overflow-hidden">
           <div className="absolute top-0 right-0 p-4 opacity-10">
             <DollarSign className="w-24 h-24" />
           </div>
           <div className="flex items-center gap-4 mb-4">
-            <div className="p-3 bg-emerald-500/20 rounded-xl">
-              <DollarSign className="w-6 h-6 text-emerald-400" />
+            <div className="p-3 bg-red-500/20 rounded-xl">
+              <DollarSign className="w-6 h-6 text-red-400" />
             </div>
             <h3 className="text-zinc-400 font-medium">Total Monthly Revenue</h3>
           </div>
           <p className="text-4xl font-bold text-white">PKR {totalMonthlyRevenue.toFixed(2)}</p>
         </div>
 
-        <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6 backdrop-blur-sm relative overflow-hidden">
+        <div className="min-w-[85vw] md:min-w-0 snap-center shrink-0 bg-zinc-900/50 border border-zinc-800 rounded-2xl p-4 md:p-6 backdrop-blur-sm relative overflow-hidden">
           <div className="absolute top-0 right-0 p-4 opacity-10">
             <Users className="w-24 h-24" />
           </div>
           <div className="flex items-center gap-4 mb-4">
-            <div className="p-3 bg-blue-500/20 rounded-xl">
-              <Users className="w-6 h-6 text-blue-400" />
+            <div className="p-3 bg-red-500/20 rounded-xl">
+              <Users className="w-6 h-6 text-red-400" />
             </div>
             <h3 className="text-zinc-400 font-medium">Active Members</h3>
           </div>
           <p className="text-4xl font-bold text-white">{activeMembersCount}</p>
         </div>
 
-        <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6 backdrop-blur-sm relative overflow-hidden">
+        <div className="min-w-[85vw] md:min-w-0 snap-center shrink-0 bg-zinc-900/50 border border-zinc-800 rounded-2xl p-4 md:p-6 backdrop-blur-sm relative overflow-hidden">
           <div className="absolute top-0 right-0 p-4 opacity-10">
             <UserPlus className="w-24 h-24" />
           </div>
@@ -502,19 +521,19 @@ export default function AdminDashboardClient({
         </div>
       </div>
 
-      {/* Charts */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6 flex flex-col">
+      {/* All Analytics Charts (Swiping on Mobile) */}
+      <div className="flex overflow-x-auto snap-x xl:grid xl:grid-cols-3 gap-4 md:gap-6 pb-4 md:pb-0 -mx-4 px-4 md:mx-0 md:px-0">
+        <div className="min-w-[90vw] md:min-w-[600px] xl:min-w-0 snap-center shrink-0 bg-zinc-900/50 border border-zinc-800 rounded-2xl p-4 md:p-6 flex flex-col">
           <div className="flex justify-between items-center mb-6">
             <h3 className="text-lg font-semibold flex items-center gap-2">
-              <Activity className="w-5 h-5 text-emerald-500" />
+              <Activity className="w-5 h-5 text-red-500" />
               Revenue Growth (6 Months)
             </h3>
             <button onClick={() => setExpandedChart('revenue')} className="p-1.5 text-zinc-400 hover:text-white bg-zinc-800/50 hover:bg-zinc-800 rounded-lg transition-colors">
               <Maximize2 className="w-4 h-4" />
             </button>
           </div>
-          <div className="flex-1 w-full min-h-[320px]">
+          <div className="flex-1 w-full h-56 md:min-h-[320px]">
             {revenueData.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={revenueData}>
@@ -523,9 +542,9 @@ export default function AdminDashboardClient({
                   <YAxis stroke="#a1a1aa" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(value) => `PKR ${value}`} />
                   <RechartsTooltip 
                     contentStyle={{ backgroundColor: '#18181b', border: '1px solid #27272a', borderRadius: '12px' }}
-                    itemStyle={{ color: '#34d399' }}
+                    itemStyle={{ color: '#ef4444' }}
                   />
-                  <Line type="monotone" dataKey="revenue" stroke="#34d399" strokeWidth={3} dot={{ fill: '#10b981', strokeWidth: 2 }} activeDot={{ r: 8 }} />
+                  <Line type="monotone" dataKey="revenue" stroke="#f87171" strokeWidth={3} dot={{ fill: '#ef4444', strokeWidth: 2 }} activeDot={{ r: 8 }} />
                 </LineChart>
               </ResponsiveContainer>
             ) : (
@@ -534,7 +553,7 @@ export default function AdminDashboardClient({
           </div>
         </div>
 
-        <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6 flex flex-col">
+        <div className="min-w-[90vw] md:min-w-[600px] xl:min-w-0 snap-center shrink-0 bg-zinc-900/50 border border-zinc-800 rounded-2xl p-4 md:p-6 flex flex-col">
           <div className="flex justify-between items-center mb-6">
             <h3 className="text-lg font-semibold flex items-center gap-2">
               <TrendingUp className="w-5 h-5 text-purple-500" />
@@ -544,7 +563,7 @@ export default function AdminDashboardClient({
               <Maximize2 className="w-4 h-4" />
             </button>
           </div>
-          <div className="flex-1 w-full min-h-[320px]">
+          <div className="flex-1 w-full h-56 md:min-h-[320px]">
             {growthData && growthData.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={growthData}>
@@ -555,7 +574,7 @@ export default function AdminDashboardClient({
                     contentStyle={{ backgroundColor: '#18181b', border: '1px solid #27272a', borderRadius: '12px' }}
                     cursor={{ fill: '#27272a' }}
                   />
-                  <Bar dataKey="signups" fill="#a855f7" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="signups" fill="#ef4444" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
@@ -564,17 +583,17 @@ export default function AdminDashboardClient({
           </div>
         </div>
 
-        <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6 flex flex-col">
+        <div className="min-w-[90vw] md:min-w-[600px] xl:min-w-0 snap-center shrink-0 bg-zinc-900/50 border border-zinc-800 rounded-2xl p-4 md:p-6 flex flex-col">
           <div className="flex justify-between items-center mb-6">
             <h3 className="text-lg font-semibold flex items-center gap-2">
-              <Users className="w-5 h-5 text-blue-500" />
+              <Users className="w-5 h-5 text-red-500" />
               Busy Hours
             </h3>
             <button onClick={() => setExpandedChart('attendance')} className="p-1.5 text-zinc-400 hover:text-white bg-zinc-800/50 hover:bg-zinc-800 rounded-lg transition-colors">
               <Maximize2 className="w-4 h-4" />
             </button>
           </div>
-          <div className="flex-1 w-full min-h-[320px]">
+          <div className="flex-1 w-full h-56 md:min-h-[320px]">
             {busyHoursData.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={busyHoursData}>
@@ -585,7 +604,7 @@ export default function AdminDashboardClient({
                     contentStyle={{ backgroundColor: '#18181b', border: '1px solid #27272a', borderRadius: '12px' }}
                     cursor={{ fill: '#27272a' }}
                   />
-                  <Bar dataKey="visits" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="visits" fill="#ef4444" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
@@ -593,16 +612,13 @@ export default function AdminDashboardClient({
             )}
           </div>
         </div>
-      </div>
-
-      {/* Demographic Analytics */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6 flex flex-col">
+        
+        <div className="min-w-[90vw] md:min-w-[600px] xl:min-w-0 snap-center shrink-0 bg-zinc-900/50 border border-zinc-800 rounded-2xl p-4 md:p-6 flex flex-col">
           <h3 className="text-lg font-semibold mb-6 flex items-center gap-2">
             <Users className="w-5 h-5 text-indigo-500" />
             Active Members Split
           </h3>
-          <div className="flex-1 w-full min-h-[320px]">
+          <div className="flex-1 w-full h-56 md:min-h-[320px]">
             {genderSplitData && genderSplitData.length > 0 && genderSplitData.some(d => d.value > 0) ? (
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
@@ -636,17 +652,17 @@ export default function AdminDashboardClient({
             )}
           </div>
           <div className="flex justify-center gap-6 mt-4">
-            <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-blue-500"></div><span className="text-sm text-zinc-400">Male</span></div>
-            <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-pink-500"></div><span className="text-sm text-zinc-400">Female</span></div>
+            <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-red-500"></div><span className="text-sm text-zinc-400">Male</span></div>
+            <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-zinc-400"></div><span className="text-sm text-zinc-400">Female</span></div>
           </div>
         </div>
 
-        <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6 flex flex-col">
+        <div className="min-w-[90vw] md:min-w-[600px] xl:min-w-0 snap-center shrink-0 bg-zinc-900/50 border border-zinc-800 rounded-2xl p-4 md:p-6 flex flex-col">
           <h3 className="text-lg font-semibold mb-6 flex items-center gap-2">
-            <DollarSign className="w-5 h-5 text-emerald-500" />
+            <DollarSign className="w-5 h-5 text-red-500" />
             Revenue by Demographic
           </h3>
-          <div className="flex-1 w-full min-h-[320px]">
+          <div className="flex-1 w-full h-56 md:min-h-[320px]">
             {revenueByGenderData && revenueByGenderData.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={revenueByGenderData}>
@@ -670,13 +686,13 @@ export default function AdminDashboardClient({
           </div>
         </div>
 
-        <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6 flex flex-col">
+        <div className="min-w-[90vw] md:min-w-[600px] xl:min-w-0 snap-center shrink-0 bg-zinc-900/50 border border-zinc-800 rounded-2xl p-4 md:p-6 flex flex-col">
           <h3 className="text-lg font-semibold mb-6 flex items-center gap-2">
             <Activity className="w-5 h-5 text-purple-500" />
             Attendance Consistency
           </h3>
-          <p className="text-xs text-zinc-500 mb-4 text-center">Average monthly visits per active user</p>
-          <div className="flex-1 w-full min-h-[290px]">
+          <p className="text-xs text-zinc-500 mb-4 text-center hidden md:block">Average monthly visits per active user</p>
+          <div className="flex-1 w-full h-56 md:min-h-[290px]">
             {attendanceConsistencyData && attendanceConsistencyData.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={attendanceConsistencyData}>
@@ -702,12 +718,12 @@ export default function AdminDashboardClient({
       </div>
 
       {/* Hardware Controls */}
-      <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6 backdrop-blur-sm">
-        <h3 className="text-lg font-semibold mb-6 flex items-center gap-2">
+      <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-4 md:p-6 backdrop-blur-sm">
+        <h3 className="text-lg font-semibold mb-4 md:mb-6 flex items-center gap-2">
           <Shield className="w-5 h-5 text-orange-500" />
           Hardware & Security Override
         </h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-2 md:gap-4">
           <button 
             onClick={() => handleUpdateDoorMode('unlock')}
             disabled={loadingHardware}
@@ -729,7 +745,7 @@ export default function AdminDashboardClient({
           <button 
             onClick={() => handleUpdateDoorMode('normal')}
             disabled={loadingHardware}
-            className={`p-4 rounded-xl border flex flex-col items-center justify-center gap-2 transition-all ${doorMode === 'normal' ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:border-zinc-700'}`}
+            className={`p-4 rounded-xl border flex flex-col items-center justify-center gap-2 transition-all ${doorMode === 'normal' ? 'bg-red-500/20 border-red-500 text-red-400' : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:border-zinc-700'}`}
           >
             <Activity className="w-6 h-6" />
             <span className="font-medium">Normal Mode</span>
@@ -790,13 +806,17 @@ export default function AdminDashboardClient({
                     </td>
                   </tr>
                 ) : filteredMembers.map((member) => (
-                  <tr key={member.id} className="hover:bg-zinc-800/20 transition-colors">
+                  <tr 
+                    key={member.id} 
+                    className="hover:bg-zinc-800/20 transition-colors cursor-pointer"
+                    onClick={() => setSelectedMember(member)}
+                  >
                     <td className="px-6 py-4">
                       <div className="font-medium text-white flex items-center gap-2">
                         {member.name}
                         {member.gender && (
                           <div 
-                            className={`w-2 h-2 rounded-full ${member.gender === 'female' ? 'bg-pink-500' : 'bg-blue-500'}`} 
+                            className={`w-2 h-2 rounded-full ${member.gender === 'female' ? 'bg-pink-500' : 'bg-red-500'}`} 
                             title={member.gender === 'female' ? 'Female' : 'Male'}
                           ></div>
                         )}
@@ -812,15 +832,15 @@ export default function AdminDashboardClient({
                       {showDeleted ? (
                         <>
                           <button
-                            onClick={() => handleRecoverMember(member.id)}
+                            onClick={(e) => { e.stopPropagation(); handleRecoverMember(member.id); }}
                             disabled={deletingId === member.id}
-                            className="p-2 text-emerald-400 hover:bg-emerald-400/10 rounded-xl transition-colors disabled:opacity-50 inline-block mr-2"
+                            className="p-2 text-red-400 hover:bg-red-400/10 rounded-xl transition-colors disabled:opacity-50 inline-block mr-2"
                             title="Recover Member"
                           >
                             <RefreshCcw className="w-5 h-5" />
                           </button>
                           <button
-                            onClick={() => handleHardDeleteMember(member.id)}
+                            onClick={(e) => { e.stopPropagation(); handleHardDeleteMember(member.id); }}
                             disabled={deletingId === member.id}
                             className="p-2 text-zinc-400 hover:text-red-400 hover:bg-red-400/10 rounded-xl transition-colors disabled:opacity-50 inline-block"
                             title="Permanently Delete"
@@ -830,7 +850,7 @@ export default function AdminDashboardClient({
                         </>
                       ) : (
                         <button
-                          onClick={() => handleDeleteMember(member.id)}
+                          onClick={(e) => { e.stopPropagation(); handleDeleteMember(member.id); }}
                           disabled={deletingId === member.id}
                           className="p-2 text-zinc-400 hover:text-red-400 hover:bg-red-400/10 rounded-xl transition-colors disabled:opacity-50 inline-block"
                           title="Move to Recently Deleted"
@@ -848,15 +868,24 @@ export default function AdminDashboardClient({
 
         {/* Plan Management */}
         <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl overflow-hidden backdrop-blur-sm flex flex-col">
-          <div className="p-6 border-b border-zinc-800">
-            <h3 className="text-lg font-semibold flex items-center gap-2">
-              <Activity className="w-5 h-5 text-emerald-500" />
-              Plan Management
-            </h3>
-            <p className="text-sm text-zinc-400 mt-1">Add or remove subscription tiers.</p>
+          <div 
+            className="p-6 border-b border-zinc-800 flex justify-between items-center cursor-pointer md:cursor-default"
+            onClick={() => setIsPlansOpen(!isPlansOpen)}
+          >
+            <div>
+              <h3 className="text-lg font-semibold flex items-center gap-2">
+                <Activity className="w-5 h-5 text-red-500" />
+                Plan Management
+              </h3>
+              <p className="text-sm text-zinc-400 mt-1">Add or remove subscription tiers.</p>
+            </div>
+            <button className="text-zinc-400 md:hidden">
+              {isPlansOpen ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+            </button>
           </div>
           
-          {/* Add Plan Form */}
+          <div className={`${isPlansOpen ? 'block' : 'hidden'} md:block`}>
+            {/* Add Plan Form */}
           <form onSubmit={handleAddPlan} className="p-6 border-b border-zinc-800/60 bg-zinc-900/20 space-y-4">
             <div className="grid grid-cols-1 gap-3">
               <input
@@ -865,7 +894,7 @@ export default function AdminDashboardClient({
                 required
                 value={newPlanName}
                 onChange={(e) => setNewPlanName(e.target.value)}
-                className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-sm focus:ring-1 focus:ring-emerald-500/50 outline-none text-white transition-all"
+                className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-sm focus:ring-1 focus:ring-red-500/50 outline-none text-white transition-all"
               />
               <div className="grid grid-cols-2 gap-2">
                 <input
@@ -876,7 +905,7 @@ export default function AdminDashboardClient({
                   step="0.01"
                   value={newPlanPrice}
                   onChange={(e) => setNewPlanPrice(e.target.value)}
-                  className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-sm focus:ring-1 focus:ring-emerald-500/50 outline-none text-white transition-all"
+                  className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-sm focus:ring-1 focus:ring-red-500/50 outline-none text-white transition-all"
                 />
                 <input
                   type="number"
@@ -885,14 +914,14 @@ export default function AdminDashboardClient({
                   min="1"
                   value={newPlanDuration}
                   onChange={(e) => setNewPlanDuration(e.target.value)}
-                  className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-sm focus:ring-1 focus:ring-emerald-500/50 outline-none text-white transition-all"
+                  className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-sm focus:ring-1 focus:ring-red-500/50 outline-none text-white transition-all"
                 />
               </div>
             </div>
             <button
               type="submit"
               disabled={submittingPlan}
-              className="w-full py-2 bg-emerald-500 hover:bg-emerald-600 text-white font-medium text-sm rounded-lg transition-all flex items-center justify-center gap-1.5"
+              className="w-full py-2 bg-red-500 hover:bg-red-600 text-white font-medium text-sm rounded-lg transition-all flex items-center justify-center gap-1.5"
             >
               {submittingPlan ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Create Plan'}
             </button>
@@ -927,14 +956,28 @@ export default function AdminDashboardClient({
           </div>
         </div>
       </div>
+      </div>
 
-      {/* Schedule Management */}
-      <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl overflow-hidden backdrop-blur-sm flex flex-col md:flex-row">
-        <div className="p-6 border-b md:border-b-0 md:border-r border-zinc-800 flex-1">
-          <h3 className="text-lg font-semibold flex items-center gap-2 mb-1">
-            <Clock className="w-5 h-5 text-blue-500" />
-            Gym Schedule Management
-          </h3>
+      {/* Gym Schedule */}
+      <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl overflow-hidden backdrop-blur-sm mb-8">
+        <div 
+          className="p-6 border-b border-zinc-800 flex justify-between items-center cursor-pointer md:cursor-default"
+          onClick={() => setIsScheduleOpen(!isScheduleOpen)}
+        >
+          <div>
+            <h3 className="text-lg font-semibold flex items-center gap-2">
+              <Clock className="w-5 h-5 text-red-500" />
+              Gym Schedule Management
+            </h3>
+            <p className="text-sm text-zinc-400 mt-1">Configure when members can access the gym.</p>
+          </div>
+          <button className="text-zinc-400 md:hidden">
+            {isScheduleOpen ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+          </button>
+        </div>
+
+        <div className={`${isScheduleOpen ? 'block' : 'hidden'} md:flex flex-col md:flex-row`}>
+          <div className="p-6 border-b md:border-b-0 md:border-r border-zinc-800 flex-1">
           <p className="text-sm text-zinc-400 mb-6">Define active hours for each demographic. Scans outside these hours are denied.</p>
           
           <form onSubmit={handleAddSchedule} className="space-y-4">
@@ -945,7 +988,7 @@ export default function AdminDashboardClient({
                   required
                   value={newScheduleGender}
                   onChange={(e) => setNewScheduleGender(e.target.value)}
-                  className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-sm focus:ring-1 focus:ring-blue-500/50 outline-none text-white transition-all appearance-none"
+                  className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-sm focus:ring-1 focus:ring-red-500/50 outline-none text-white transition-all appearance-none"
                 >
                   <option value="male">Male</option>
                   <option value="female">Female</option>
@@ -958,7 +1001,7 @@ export default function AdminDashboardClient({
                   required
                   value={newScheduleStart}
                   onChange={(e) => setNewScheduleStart(e.target.value)}
-                  className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-sm focus:ring-1 focus:ring-blue-500/50 outline-none text-white transition-all [color-scheme:dark]"
+                  className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-sm focus:ring-1 focus:ring-red-500/50 outline-none text-white transition-all [color-scheme:dark]"
                 />
               </div>
               <div>
@@ -968,14 +1011,14 @@ export default function AdminDashboardClient({
                   required
                   value={newScheduleEnd}
                   onChange={(e) => setNewScheduleEnd(e.target.value)}
-                  className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-sm focus:ring-1 focus:ring-blue-500/50 outline-none text-white transition-all [color-scheme:dark]"
+                  className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-sm focus:ring-1 focus:ring-red-500/50 outline-none text-white transition-all [color-scheme:dark]"
                 />
               </div>
             </div>
             <button
               type="submit"
               disabled={submittingSchedule}
-              className="py-2.5 px-4 bg-blue-500 hover:bg-blue-600 text-white font-medium text-sm rounded-lg transition-all flex items-center justify-center gap-1.5 w-full md:w-auto"
+              className="py-2.5 px-4 bg-red-500 hover:bg-red-600 text-white font-medium text-sm rounded-lg transition-all flex items-center justify-center gap-1.5 w-full md:w-auto"
             >
               {submittingSchedule ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Add Time Slot'}
             </button>
@@ -994,7 +1037,7 @@ export default function AdminDashboardClient({
             schedules.map((schedule) => (
               <div key={schedule.id} className="p-4 flex items-center justify-between hover:bg-zinc-800/10 transition-colors">
                 <div className="flex items-center gap-4">
-                  <div className={`w-2 h-2 rounded-full ${schedule.gender === 'female' ? 'bg-pink-500' : 'bg-blue-500'}`}></div>
+                  <div className={`w-2 h-2 rounded-full ${schedule.gender === 'female' ? 'bg-pink-500' : 'bg-red-500'}`}></div>
                   <div>
                     <h4 className="font-semibold text-white text-sm capitalize">{schedule.gender} Timing</h4>
                     <p className="text-xs text-zinc-400 mt-0.5">{schedule.start_time.substring(0,5)} to {schedule.end_time.substring(0,5)}</p>
@@ -1011,6 +1054,7 @@ export default function AdminDashboardClient({
             ))
           )}
         </div>
+        </div>
       </div>
 
       {/* Analytics Modal */}
@@ -1019,9 +1063,9 @@ export default function AdminDashboardClient({
           <div className="bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden">
             <div className="p-6 border-b border-zinc-800 flex justify-between items-center bg-zinc-900/50">
               <h2 className="text-xl font-bold flex items-center gap-2">
-                {expandedChart === 'revenue' && <><Activity className="w-6 h-6 text-emerald-500"/> Revenue Deep Dive</>}
+                {expandedChart === 'revenue' && <><Activity className="w-6 h-6 text-red-500"/> Revenue Deep Dive</>}
                 {expandedChart === 'signups' && <><TrendingUp className="w-6 h-6 text-purple-500"/> Signups Deep Dive</>}
-                {expandedChart === 'attendance' && <><Users className="w-6 h-6 text-blue-500"/> Busy Hours Deep Dive</>}
+                {expandedChart === 'attendance' && <><Users className="w-6 h-6 text-red-500"/> Busy Hours Deep Dive</>}
               </h2>
               <button onClick={() => setExpandedChart(null)} className="p-2 text-zinc-400 hover:text-white rounded-lg hover:bg-zinc-800 transition-colors">
                 <X className="w-6 h-6" />
@@ -1127,7 +1171,7 @@ export default function AdminDashboardClient({
                                     <td className="px-4 py-3 text-zinc-300">{new Date(row.date).toLocaleDateString()}</td>
                                     <td className="px-4 py-3 font-medium text-white">{row.members?.name || 'Unknown'}</td>
                                     <td className="px-4 py-3 text-zinc-400">{row.members?.next_due_date ? new Date(row.members.next_due_date).toLocaleDateString() : 'N/A'}</td>
-                                    <td className="px-4 py-3 text-right font-medium text-emerald-400">PKR {parseFloat(row.amount).toFixed(2)}</td>
+                                    <td className="px-4 py-3 text-right font-medium text-red-400">PKR {parseFloat(row.amount).toFixed(2)}</td>
                                   </>
                                 )}
                                 {expandedChart === 'signups' && (
@@ -1157,6 +1201,148 @@ export default function AdminDashboardClient({
                   </div>
                 </>
               ) : null}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Selected Member Modal */}
+      {selectedMember && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-6xl max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="p-6 border-b border-zinc-800 flex justify-between items-center bg-zinc-900/50">
+              <h2 className="text-xl font-bold flex items-center gap-4">
+                {selectedMember.image_url ? (
+                  <img src={selectedMember.image_url} alt={selectedMember.name} className="w-12 h-12 rounded-xl object-cover border border-zinc-700" />
+                ) : (
+                  <div className="w-12 h-12 rounded-xl bg-zinc-800 flex items-center justify-center border border-zinc-700">
+                    <Users className="w-6 h-6 text-zinc-500" />
+                  </div>
+                )}
+                <div>
+                  <div className="flex items-center gap-2">
+                    {selectedMember.name}
+                    {selectedMember.gender && (
+                      <div className={`w-2.5 h-2.5 rounded-full ${selectedMember.gender === 'female' ? 'bg-pink-500' : 'bg-red-500'}`} title={selectedMember.gender} />
+                    )}
+                  </div>
+                  <div className="text-sm font-normal text-zinc-400 mt-0.5">
+                    {selectedMember.phone} • {selectedMember.plans?.name || 'No Plan'}
+                  </div>
+                </div>
+              </h2>
+              <button onClick={() => setSelectedMember(null)} className="p-2 text-zinc-400 hover:text-white rounded-lg hover:bg-zinc-800 transition-colors">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            
+            <div className="p-6 flex-1 overflow-y-auto">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                
+                {/* Charts Section */}
+                <div className="space-y-6">
+                  {/* Time of Day Chart */}
+                  <div className="bg-zinc-900/30 rounded-xl p-6 border border-zinc-800">
+                    <h3 className="text-md font-semibold mb-4 text-red-400 flex items-center gap-2">
+                      <Clock className="w-4 h-4" /> Visits by Time of Day
+                    </h3>
+                    <div className="h-64 w-full">
+                      {selectedMember.attendance && selectedMember.attendance.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={
+                            (() => {
+                              const hourCounts = {};
+                              for(let i=0; i<24; i++) hourCounts[i] = 0;
+                              selectedMember.attendance.forEach(a => {
+                                hourCounts[new Date(a.timestamp).getHours()]++;
+                              });
+                              return Object.keys(hourCounts).map(h => ({ name: `${h}:00`, visits: hourCounts[h] }));
+                            })()
+                          }>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
+                            <XAxis dataKey="name" stroke="#a1a1aa" fontSize={10} tickLine={false} axisLine={false} />
+                            <YAxis stroke="#a1a1aa" fontSize={10} tickLine={false} axisLine={false} allowDecimals={false} />
+                            <RechartsTooltip contentStyle={{ backgroundColor: '#18181b', border: '1px solid #27272a', borderRadius: '12px' }} cursor={{ fill: '#27272a' }} />
+                            <Bar dataKey="visits" fill="#34d399" radius={[4, 4, 0, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <div className="flex h-full items-center justify-center text-zinc-500">No attendance data</div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Day of Week Chart */}
+                  <div className="bg-zinc-900/30 rounded-xl p-6 border border-zinc-800">
+                    <h3 className="text-md font-semibold mb-4 text-red-400 flex items-center gap-2">
+                      <Activity className="w-4 h-4" /> Visits by Day of the Week
+                    </h3>
+                    <div className="h-64 w-full">
+                      {selectedMember.attendance && selectedMember.attendance.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={
+                            (() => {
+                              const dayCounts = { 'Sun': 0, 'Mon': 0, 'Tue': 0, 'Wed': 0, 'Thu': 0, 'Fri': 0, 'Sat': 0 };
+                              const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+                              selectedMember.attendance.forEach(a => {
+                                dayCounts[days[new Date(a.timestamp).getDay()]]++;
+                              });
+                              return Object.keys(dayCounts).map(d => ({ name: d, visits: dayCounts[d] }));
+                            })()
+                          }>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
+                            <XAxis dataKey="name" stroke="#a1a1aa" fontSize={12} tickLine={false} axisLine={false} />
+                            <YAxis stroke="#a1a1aa" fontSize={12} tickLine={false} axisLine={false} allowDecimals={false} />
+                            <RechartsTooltip contentStyle={{ backgroundColor: '#18181b', border: '1px solid #27272a', borderRadius: '12px' }} cursor={{ fill: '#27272a' }} />
+                            <Bar dataKey="visits" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <div className="flex h-full items-center justify-center text-zinc-500">No attendance data</div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Raw Attendance Logs */}
+                <div className="bg-zinc-900/30 rounded-xl border border-zinc-800 flex flex-col max-h-[calc(100vh-200px)]">
+                  <div className="p-6 border-b border-zinc-800 flex justify-between items-center bg-zinc-900/20">
+                    <h3 className="text-md font-semibold text-white">Recent Attendance Logs</h3>
+                    <span className="text-xs bg-zinc-800 text-zinc-300 px-2 py-1 rounded-md">
+                      Total Visits: {selectedMember.attendance?.length || 0}
+                    </span>
+                  </div>
+                  <div className="flex-1 overflow-y-auto">
+                    {selectedMember.attendance && selectedMember.attendance.length > 0 ? (
+                      <table className="w-full text-left">
+                        <thead className="sticky top-0 bg-zinc-900 border-b border-zinc-800">
+                          <tr>
+                            <th className="px-6 py-3 text-xs font-medium text-zinc-400 uppercase">Date</th>
+                            <th className="px-6 py-3 text-xs font-medium text-zinc-400 uppercase text-right">Time</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-zinc-800/50 text-sm">
+                          {/* Sort attendance descending */}
+                          {[...selectedMember.attendance]
+                            .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+                            .map((att, i) => (
+                              <tr key={i} className="hover:bg-zinc-800/30 transition-colors">
+                                <td className="px-6 py-3 text-zinc-300">
+                                  {new Date(att.timestamp).toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}
+                                </td>
+                                <td className="px-6 py-3 text-right text-zinc-400">
+                                  {new Date(att.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </td>
+                              </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    ) : (
+                      <div className="p-8 text-center text-zinc-500">No recent visits recorded.</div>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>

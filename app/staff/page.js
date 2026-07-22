@@ -5,7 +5,7 @@ import { createClient } from '@/utils/supabase/client'
 import SignOutButton from '@/app/components/SignOutButton'
 import AddMemberModal from '@/app/components/AddMemberModal'
 import { addDays, differenceInDays } from 'date-fns'
-import { Plus, Fingerprint, MessageCircle, Check, Loader2, AlertCircle, Trash2, Activity } from 'lucide-react'
+import { Plus, Fingerprint, MessageCircle, Check, Loader2, AlertCircle, Trash2, Activity, Printer, ChevronDown, ChevronUp, User, Image as ImageIcon } from 'lucide-react'
 
 export default function StaffDashboard() {
   const [members, setMembers] = useState([])
@@ -15,7 +15,16 @@ export default function StaffDashboard() {
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(null) // ID of member being processed
   const [enrollModalMember, setEnrollModalMember] = useState(null)
+  const [expandedRows, setExpandedRows] = useState({})
   const supabase = createClient()
+
+  const toggleRow = (memberId) => {
+    setExpandedRows(prev => ({ ...prev, [memberId]: !prev[memberId] }))
+  }
+
+  const handlePrint = () => {
+    window.print()
+  }
 
   useEffect(() => {
     fetchData()
@@ -156,6 +165,7 @@ export default function StaffDashboard() {
         join_date: today.toISOString().split('T')[0],
         next_due_date: nextDueDate.toISOString().split('T')[0],
         fingerprint_id: memberData.fingerprint_id || null,
+        image_url: memberData.image_url || null,
         plans: {
           name: memberData.plan.name,
           price: memberData.plan.price,
@@ -179,6 +189,7 @@ export default function StaffDashboard() {
         join_date: today.toISOString().split('T')[0],
         next_due_date: nextDueDate.toISOString().split('T')[0],
         fingerprint_id: memberData.fingerprint_id || null,
+        image_url: memberData.image_url || null,
       })
       .select()
       .single()
@@ -283,14 +294,59 @@ export default function StaffDashboard() {
     }
   }
 
-  const getStatusColor = (nextDueDate) => {
-    const daysLeft = differenceInDays(new Date(nextDueDate), new Date())
-    if (daysLeft < 0) return 'text-red-400 bg-red-400/10 border-red-400/20'
-    if (daysLeft <= 3) return 'text-yellow-400 bg-yellow-400/10 border-yellow-400/20'
-    return 'text-emerald-400 bg-emerald-400/10 border-emerald-400/20'
+  const handlePhotoUpload = async (memberId, e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    setActionLoading(memberId)
+    const isDemo = typeof document !== 'undefined' && document.cookie.includes('gymflow_demo_role')
+    
+    if (isDemo) {
+      alert("Photo upload is disabled in demo mode.")
+      setActionLoading(null)
+      return
+    }
+
+    try {
+      const fileExt = file.name.split('.').pop()
+      const fileName = `${memberId}-${Math.random().toString(36).substring(2, 10)}.${fileExt}`
+      
+      const { error: uploadError } = await supabase.storage
+        .from('member_photos')
+        .upload(fileName, file, { cacheControl: '3600', upsert: false })
+
+      if (uploadError) throw uploadError
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('member_photos')
+        .getPublicUrl(fileName)
+
+      const { error: updateError } = await supabase
+        .from('members')
+        .update({ image_url: publicUrl })
+        .eq('id', memberId)
+
+      if (updateError) throw updateError
+
+      await fetchData()
+    } catch (error) {
+      console.error('Error uploading photo:', error)
+      alert('Failed to upload photo.')
+    } finally {
+      setActionLoading(null)
+    }
   }
 
-  const getStatusText = (nextDueDate) => {
+  const getStatusColor = (nextDueDate, isDeleted) => {
+    if (isDeleted) return 'text-zinc-500 border-zinc-500 bg-transparent'
+    const daysLeft = differenceInDays(new Date(nextDueDate), new Date())
+    if (daysLeft < 0) return 'text-red-500 border-red-500 bg-transparent'
+    if (daysLeft <= 3) return 'text-yellow-400 bg-yellow-400/10 border-yellow-400/20'
+    return 'text-white border-zinc-400 bg-zinc-800'
+  }
+
+  const getStatusText = (nextDueDate, isDeleted) => {
+    if (isDeleted) return 'Deleted'
     const daysLeft = differenceInDays(new Date(nextDueDate), new Date())
     if (daysLeft < 0) return 'Overdue'
     if (daysLeft <= 3) return `Due in ${daysLeft} days`
@@ -328,84 +384,94 @@ export default function StaffDashboard() {
   const filteredMembers = getFilteredMembers()
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-white p-4 md:p-8">
+    <div className="min-h-screen bg-black text-white p-4 md:p-8">
       <div className="max-w-6xl mx-auto">
-        <header className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
-          <div>
-            <h1 className="text-3xl font-bold">Staff Dashboard</h1>
-            <p className="text-zinc-400">Daily Operations & Member Management</p>
-          </div>
-          <div className="flex items-center gap-4 w-full md:w-auto">
-            <button 
-              onClick={() => setIsModalOpen(true)}
-              className="flex-1 md:flex-none justify-center px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 text-white font-medium rounded-xl transition-all flex items-center gap-2 shadow-lg shadow-emerald-500/20"
-            >
-              <Plus className="w-5 h-5" />
-              Add Member
-            </button>
-            <SignOutButton />
-          </div>
-        </header>
-
-        {/* Search and Filters */}
-        <div className="flex flex-col md:flex-row gap-4 mb-6">
-          <div className="relative flex-1">
-            <input
-              type="text"
-              placeholder="Search members by name or phone..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-4 pr-10 py-3 bg-zinc-900 border border-zinc-800 rounded-2xl focus:outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50 transition-all text-sm placeholder:text-zinc-500"
-            />
-            {searchQuery && (
+        
+        <div className="sticky top-0 z-40 bg-black/90 backdrop-blur-md pt-4 md:pt-0 -mx-4 px-4 md:mx-0 md:px-0 md:static md:bg-transparent pb-4 mb-4 border-b border-zinc-800 md:border-none print:static">
+          <header className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 md:mb-8 gap-4">
+            <div>
+              <h1 className="text-3xl font-bold">Staff Dashboard</h1>
+              <p className="text-zinc-400">Daily Operations & Member Management</p>
+            </div>
+            <div className="flex items-center gap-4 w-full md:w-auto print:hidden">
               <button 
-                onClick={() => setSearchQuery('')}
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white"
+                onClick={handlePrint}
+                className="px-4 py-2.5 bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-600 text-white font-medium rounded-xl transition-all flex items-center gap-2"
               >
-                ✕
+                <Printer className="w-5 h-5" />
+                Print
               </button>
-            )}
-          </div>
-          
-          <div className="flex overflow-x-auto gap-2 no-scrollbar md:pb-0">
-            <button
-              onClick={() => setFilter('all')}
-              className={`whitespace-nowrap px-4 py-3 rounded-2xl text-sm font-medium transition-colors ${filter === 'all' ? 'bg-zinc-100 text-zinc-900' : 'bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-white border border-zinc-800'}`}
-            >
-              All Members
-            </button>
-            <button
-              onClick={() => setFilter('paid')}
-              className={`whitespace-nowrap px-4 py-3 rounded-2xl text-sm font-medium transition-colors ${filter === 'paid' ? 'bg-emerald-500 text-emerald-950 shadow-[0_0_15px_rgba(16,185,129,0.3)]' : 'bg-zinc-900 text-emerald-500 hover:bg-zinc-800 border border-zinc-800'}`}
-            >
-              Paid
-            </button>
-            <button
-              onClick={() => setFilter('due_soon')}
-              className={`whitespace-nowrap px-4 py-3 rounded-2xl text-sm font-medium transition-colors ${filter === 'due_soon' ? 'bg-yellow-500 text-yellow-950 shadow-[0_0_15px_rgba(234,179,8,0.3)]' : 'bg-zinc-900 text-yellow-500 hover:bg-zinc-800 border border-zinc-800'}`}
-            >
-              Due Soon
-            </button>
-            <button
-              onClick={() => setFilter('overdue')}
-              className={`whitespace-nowrap px-4 py-3 rounded-2xl text-sm font-medium transition-colors ${filter === 'overdue' ? 'bg-red-500 text-red-950 shadow-[0_0_15px_rgba(239,68,68,0.3)]' : 'bg-zinc-900 text-red-500 hover:bg-zinc-800 border border-zinc-800'}`}
-            >
-              Overdue
-            </button>
-            <button
-              onClick={() => setFilter('deleted')}
-              className={`whitespace-nowrap px-4 py-3 rounded-2xl text-sm font-medium transition-colors ${filter === 'deleted' ? 'bg-zinc-700 text-white shadow-[0_0_15px_rgba(63,63,70,0.5)]' : 'bg-zinc-900 text-zinc-500 hover:bg-zinc-800 hover:text-white border border-zinc-800'}`}
-            >
-              Recently Deleted
-            </button>
+              <button 
+                onClick={() => setIsModalOpen(true)}
+                className="flex-1 md:flex-none justify-center px-4 py-2.5 bg-red-500 hover:bg-red-600 active:bg-red-700 text-white font-medium rounded-xl transition-all flex items-center gap-2 shadow-lg shadow-red-500/20"
+              >
+                <Plus className="w-5 h-5" />
+                Add Member
+              </button>
+              <SignOutButton />
+            </div>
+          </header>
+
+          {/* Search and Filters */}
+          <div className="flex flex-col md:flex-row gap-4 print:hidden">
+            <div className="relative flex-1">
+              <input
+                type="text"
+                placeholder="Search members by name or phone..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-4 pr-10 py-3 bg-zinc-900 border border-zinc-800 rounded-2xl focus:outline-none focus:border-red-500/50 focus:ring-1 focus:ring-red-500/50 transition-all text-sm placeholder:text-zinc-500"
+              />
+              {searchQuery && (
+                <button 
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+            
+            <div className="flex overflow-x-auto gap-2 no-scrollbar pb-2 md:pb-0">
+              <button
+                onClick={() => setFilter('all')}
+                className={`whitespace-nowrap px-4 py-3 rounded-2xl text-sm font-medium transition-colors ${filter === 'all' ? 'bg-zinc-100 text-zinc-900' : 'bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-white border border-zinc-800'}`}
+              >
+                All Members
+              </button>
+              <button
+                onClick={() => setFilter('paid')}
+                className={`whitespace-nowrap px-4 py-3 rounded-2xl text-sm font-medium transition-colors ${filter === 'paid' ? 'bg-red-500 text-red-950 shadow-[0_0_15px_rgba(239,68,68,0.3)]' : 'bg-zinc-900 text-red-500 hover:bg-zinc-800 border border-zinc-800'}`}
+              >
+                Paid
+              </button>
+              <button
+                onClick={() => setFilter('due_soon')}
+                className={`whitespace-nowrap px-4 py-3 rounded-2xl text-sm font-medium transition-colors ${filter === 'due_soon' ? 'bg-yellow-500 text-yellow-950 shadow-[0_0_15px_rgba(234,179,8,0.3)]' : 'bg-zinc-900 text-yellow-500 hover:bg-zinc-800 border border-zinc-800'}`}
+              >
+                Due Soon
+              </button>
+              <button
+                onClick={() => setFilter('overdue')}
+                className={`whitespace-nowrap px-4 py-3 rounded-2xl text-sm font-medium transition-colors ${filter === 'overdue' ? 'bg-red-500 text-red-950 shadow-[0_0_15px_rgba(239,68,68,0.3)]' : 'bg-zinc-900 text-red-500 hover:bg-zinc-800 border border-zinc-800'}`}
+              >
+                Overdue
+              </button>
+              <button
+                onClick={() => setFilter('deleted')}
+                className={`whitespace-nowrap px-4 py-3 rounded-2xl text-sm font-medium transition-colors ${filter === 'deleted' ? 'bg-zinc-700 text-white shadow-[0_0_15px_rgba(63,63,70,0.5)]' : 'bg-zinc-900 text-zinc-500 hover:bg-zinc-800 hover:text-white border border-zinc-800'}`}
+              >
+                Recently Deleted
+              </button>
+            </div>
           </div>
         </div>
 
         {/* Recent Scans Feed */}
         {recentScans.length > 0 && (
-          <div className="mb-8">
+          <div className="mb-8 print:hidden">
             <h3 className="text-sm font-semibold text-zinc-400 mb-3 flex items-center gap-2">
-              <Activity className="w-4 h-4 text-emerald-500" />
+              <Activity className="w-4 h-4 text-red-500" />
               Live Scans
             </h3>
             <div className="flex overflow-x-auto gap-3 pb-2 no-scrollbar">
@@ -417,7 +483,7 @@ export default function StaffDashboard() {
                 
                 return (
                   <div key={i} className="flex-none flex items-center gap-3 bg-zinc-900 border border-zinc-800 rounded-xl py-2 px-4 shadow-sm">
-                    <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
+                    <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></div>
                     <div>
                       <div className="text-sm font-medium text-white">{scan.memberName}</div>
                       <div className="text-xs text-zinc-500">{dayStr} at {timeStr}</div>
@@ -429,18 +495,18 @@ export default function StaffDashboard() {
           </div>
         )}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="flex flex-col gap-4 print:grid print:grid-cols-2 print:gap-x-6 print:gap-y-4 print:w-full">
           {loading ? (
-            <div className="col-span-full py-12 text-center text-zinc-500 bg-zinc-900/50 border border-zinc-800 rounded-3xl backdrop-blur-sm">
+            <div className="py-12 text-center text-zinc-500 bg-zinc-900/50 border border-zinc-800 rounded-3xl backdrop-blur-sm">
               <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2" />
               Loading members...
             </div>
           ) : filteredMembers.length === 0 ? (
-            <div className="col-span-full py-12 text-center text-zinc-500 bg-zinc-900/50 border border-zinc-800 rounded-3xl backdrop-blur-sm">
+            <div className="py-12 text-center text-zinc-500 bg-zinc-900/50 border border-zinc-800 rounded-3xl backdrop-blur-sm">
               No members found in this category.
             </div>
           ) : filteredMembers.map((member) => {
-            const statusColor = getStatusColor(member.next_due_date)
+            const statusColor = getStatusColor(member.next_due_date, member.deleted_at != null)
             const thisMonthVisits = (member.attendance || []).filter(a => {
               const date = new Date(a.timestamp)
               const now = new Date()
@@ -448,140 +514,217 @@ export default function StaffDashboard() {
             }).length
             
             return (
-              <div key={member.id} className="bg-zinc-900/50 border border-zinc-800 rounded-3xl p-5 flex flex-col backdrop-blur-sm hover:bg-zinc-800/30 transition-colors">
-                <div className="flex justify-between items-start mb-4">
-                  <div>
-                    <div className="text-lg font-bold text-white">{member.name}</div>
-                    <div className="text-sm text-zinc-400">{member.phone}</div>
-                  </div>
-                  <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold border ${statusColor}`}>
-                    {getStatusText(member.next_due_date)}
-                  </span>
-                </div>
-
-                <div className="text-sm text-zinc-400 mb-6 flex-grow space-y-1">
-                  <div>Plan: <strong className="text-zinc-200">{member.plans?.name || 'Unknown'}</strong></div>
-                  <div>Visits this Month: <strong className="text-zinc-200">{thisMonthVisits}</strong></div>
-                </div>
-
-                <div className="space-y-3 mt-auto">
-                  {/* Fingerprint Status / Action */}
-                  <div className="bg-zinc-950/50 rounded-2xl p-2 border border-zinc-800/50">
-                    {member.fingerprint_id ? (
-                      <div className="flex items-center justify-center gap-2 py-2 text-sm font-medium text-emerald-400">
-                        <Check className="w-5 h-5" /> Enrolled (ID: {member.fingerprint_id})
-                      </div>
-                    ) : member.is_enrolling ? (
-                      <button
-                        onClick={async () => {
-                          setMembers(members.map(m => m.id === member.id ? { ...m, is_enrolling: false } : m))
-                          if (enrollModalMember?.id === member.id) setEnrollModalMember(null)
-                          await supabase.from('members').update({ is_enrolling: false }).eq('id', member.id)
-                        }}
-                        className="w-full flex items-center justify-center gap-2 py-3 px-4 text-sm font-medium text-yellow-400 bg-yellow-400/10 hover:bg-yellow-400/20 rounded-xl transition-colors border border-yellow-400/20"
-                      >
-                        <Loader2 className="w-5 h-5 animate-spin" /> Cancel Waiting...
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => handleEnrollScanner(member.id)}
-                        disabled={actionLoading === member.id}
-                        className="w-full flex items-center justify-center gap-2 py-3 px-4 text-sm font-semibold text-emerald-950 bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-600 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_20px_rgba(16,185,129,0.1)]"
-                      >
-                        <Fingerprint className="w-5 h-5" />
-                        Enroll Fingerprint
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Actions Row */}
-                  <div className="flex gap-2">
-                    {member.deleted_at ? (
-                      <>
-                        <button
-                          onClick={async () => {
-                            if (!confirm('Recover this member?')) return
-                            setActionLoading(member.id)
-                            await supabase.from('members').update({ deleted_at: null }).eq('id', member.id)
-                            await fetchData()
-                            setActionLoading(null)
-                          }}
-                          disabled={actionLoading === member.id}
-                          className="flex-1 flex justify-center items-center gap-2 py-3 px-4 text-sm font-medium rounded-xl transition-colors border text-emerald-400 bg-emerald-400/10 hover:bg-emerald-400/20 border-emerald-400/20 disabled:opacity-50"
-                        >
-                          {actionLoading === member.id ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Recover'}
-                        </button>
-                        <button
-                          onClick={async () => {
-                            if (!confirm('Permanently delete this member? This cannot be undone.')) return
-                            setActionLoading(member.id)
-                            await supabase.from('members').delete().eq('id', member.id)
-                            await fetchData()
-                            setActionLoading(null)
-                          }}
-                          disabled={actionLoading === member.id}
-                          className="flex-1 flex justify-center items-center gap-2 py-3 px-4 text-sm font-medium rounded-xl transition-colors border text-red-400 bg-red-400/10 hover:bg-red-400/20 border-red-400/20 disabled:opacity-50"
-                        >
-                          {actionLoading === member.id ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Delete Forever'}
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <button
-                          onClick={() => handleMarkPaid(member)}
-                          disabled={actionLoading === member.id}
-                          className={`flex-1 flex justify-center items-center gap-2 py-3 px-4 text-sm font-medium rounded-xl transition-colors border disabled:opacity-50 disabled:cursor-not-allowed ${
-                            differenceInDays(new Date(member.next_due_date), new Date()) > 3
-                              ? 'text-emerald-400 bg-emerald-400/10 hover:bg-emerald-400/20 border-emerald-400/20'
-                              : 'text-zinc-300 bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-600 border-zinc-700'
-                          }`}
-                        >
-                          {actionLoading === member.id ? (
-                            <>
-                              <Loader2 className="w-5 h-5 animate-spin" />
-                              Processing...
-                            </>
-                          ) : differenceInDays(new Date(member.next_due_date), new Date()) > 3 ? (
-                            <>
-                              <Check className="w-5 h-5" />
-                              Up to Date
-                            </>
-                          ) : (
-                            <>
-                              <DollarSignIcon className="w-5 h-5" />
-                              Mark Paid
-                            </>
-                          )}
-                        </button>
+              <div key={member.id} className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-4 md:p-5 flex flex-col backdrop-blur-sm transition-colors print:break-inside-avoid print:bg-white print:border-zinc-300 print:text-black print:p-3 print:rounded-lg print:border-b-2">
+                {/* Main Row (Always Visible) */}
+                <div 
+                  className="flex flex-row items-center justify-between gap-3 cursor-pointer"
+                  onClick={() => toggleRow(member.id)}
+                >
+                  <div className="flex items-center gap-3 md:gap-4 flex-1">
+                    {/* Profile Picture */}
+                    <div className="w-12 h-12 md:w-14 md:h-14 rounded-full bg-zinc-800 border-2 border-zinc-700 flex items-center justify-center overflow-hidden shrink-0 print:border-zinc-300">
+                      {member.image_url ? (
+                        <img src={member.image_url} alt={member.name} className="w-full h-full object-cover" />
+                      ) : (
+                        <User className="w-5 h-5 md:w-6 md:h-6 text-zinc-500 print:text-zinc-400" />
+                      )}
+                    </div>
+                    {/* Primary Info */}
+                    <div className="flex-1">
+                      <div className="text-base md:text-lg font-bold text-white print:text-black print:text-sm truncate max-w-[200px] md:max-w-none">{member.name}</div>
+                      <div className="text-xs md:text-sm text-zinc-400 print:text-zinc-600 print:text-xs flex flex-wrap items-center gap-x-2 gap-y-1 mt-0.5 md:mt-1">
+                        <span className="hidden md:inline">{member.phone || 'No Phone'}</span>
+                        <span className="hidden md:inline">•</span>
+                        <span className="hidden md:inline capitalize">{member.gender || 'Unknown'}</span>
                         
-                        {member.phone && (
-                          <a
-                            href={`https://wa.me/${member.phone.replace(/[^0-9]/g, '')}?text=Hi ${member.name}, this is a reminder from GymFlow regarding your membership.`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex-none flex items-center justify-center p-3 text-emerald-400 bg-emerald-400/10 hover:bg-emerald-400/20 rounded-xl transition-colors border border-emerald-400/20"
-                          >
-                            <MessageCircle className="w-5 h-5" />
-                          </a>
+                        {/* Status elements collapse on mobile unless expanded or we keep them tiny */}
+                        {!expandedRows[member.id] && (
+                          <span className="md:hidden text-zinc-500">Tap for details</span>
+                        )}
+                        
+                        {member.fingerprint_id ? (
+                          <span className="hidden md:flex text-red-500 items-center gap-1 ml-1 print:hidden"><Fingerprint className="w-3 h-3"/> Enrolled</span>
+                        ) : (
+                          <span className="hidden md:flex text-yellow-500 items-center gap-1 ml-1 print:hidden"><AlertCircle className="w-3 h-3"/> No Biometric</span>
+                        )}
+                        
+                        {!member.image_url && (
+                          <span className="hidden md:flex text-yellow-500 items-center gap-1 ml-1 print:hidden"><ImageIcon className="w-3 h-3"/> No Photo</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Status & Chevron */}
+                  <div className="flex items-center gap-2 md:gap-4 shrink-0">
+                    <span className={`inline-flex items-center px-2 py-0.5 md:px-3 md:py-1 rounded-full text-[10px] md:text-xs font-semibold border ${statusColor} print:border-zinc-300 print:text-black print:bg-transparent`}>
+                      {getStatusText(member.next_due_date, member.deleted_at != null)}
+                    </span>
+                    <button className="text-zinc-500 hover:text-white transition-colors print:hidden">
+                      {expandedRows[member.id] ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Expanded Accordion Area */}
+                {expandedRows[member.id] && (
+                  <div className="mt-4 md:mt-6 pt-4 md:pt-6 border-t border-zinc-800/50 print:border-zinc-200 print:mt-2 print:pt-2">
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 md:gap-6">
+                      <div className="text-sm text-zinc-400 print:text-zinc-600 print:text-xs space-y-1 md:space-y-2 print:space-y-1">
+                        <div className="md:hidden">Phone: <strong className="text-zinc-200">{member.phone || 'N/A'}</strong></div>
+                        <div className="md:hidden">Gender: <strong className="text-zinc-200 capitalize">{member.gender || 'N/A'}</strong></div>
+                        <div>Plan: <strong className="text-zinc-200 print:text-black">{member.plans?.name || 'Unknown'}</strong></div>
+                        <div>Visits this Month: <strong className="text-zinc-200 print:text-black">{thisMonthVisits}</strong></div>
+                      </div>
+                      
+                      {/* Actions Row */}
+                      <div className="flex flex-wrap gap-2 w-full md:w-auto print:hidden">
+                        {/* Fingerprint Status / Action */}
+                        <div className="flex-none">
+                          {member.fingerprint_id ? (
+                            <div className="flex items-center justify-center gap-2 py-3 px-4 text-sm font-medium text-red-400 bg-red-400/10 rounded-xl border border-red-400/20">
+                              <Check className="w-5 h-5" /> ID: {member.fingerprint_id}
+                            </div>
+                          ) : member.is_enrolling ? (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setMembers(members.map(m => m.id === member.id ? { ...m, is_enrolling: false } : m))
+                                if (enrollModalMember?.id === member.id) setEnrollModalMember(null)
+                                supabase.from('members').update({ is_enrolling: false }).eq('id', member.id)
+                              }}
+                              className="flex items-center justify-center gap-2 py-3 px-4 text-sm font-medium text-yellow-400 bg-yellow-400/10 hover:bg-yellow-400/20 rounded-xl transition-colors border border-yellow-400/20"
+                            >
+                              <Loader2 className="w-5 h-5 animate-spin" /> Cancel Wait...
+                            </button>
+                          ) : (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleEnrollScanner(member.id)
+                              }}
+                              disabled={actionLoading === member.id}
+                              className="flex items-center justify-center gap-2 py-3 px-4 text-sm font-semibold text-red-950 bg-red-500 hover:bg-red-400 active:bg-red-600 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_20px_rgba(16,185,129,0.1)]"
+                            >
+                              <Fingerprint className="w-5 h-5" />
+                              Enroll Scan
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Photo Status / Action */}
+                        {!member.image_url && !member.deleted_at && (
+                          <div className="flex-none">
+                            <label className={`flex items-center justify-center gap-2 py-3 px-4 text-sm font-semibold text-blue-950 bg-red-500 hover:bg-red-400 active:bg-red-600 rounded-xl transition-all shadow-[0_0_20px_rgba(59,130,246,0.1)] cursor-pointer ${actionLoading === member.id ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                              {actionLoading === member.id ? <Loader2 className="w-5 h-5 animate-spin" /> : <ImageIcon className="w-5 h-5" />}
+                              Upload Photo
+                              <input 
+                                type="file" 
+                                accept="image/*" 
+                                capture="environment" 
+                                className="hidden" 
+                                onChange={(e) => handlePhotoUpload(member.id, e)} 
+                                disabled={actionLoading === member.id}
+                              />
+                            </label>
+                          </div>
                         )}
 
-                        <button
-                          onClick={async () => {
-                            if (!confirm('Move to Recently Deleted?')) return
-                            setActionLoading(member.id)
-                            await supabase.from('members').update({ deleted_at: new Date().toISOString() }).eq('id', member.id)
-                            await fetchData()
-                            setActionLoading(null)
-                          }}
-                          disabled={actionLoading === member.id}
-                          className="flex-none flex items-center justify-center p-3 text-red-400 bg-red-400/10 hover:bg-red-400/20 rounded-xl transition-colors border border-red-400/20 disabled:opacity-50"
-                        >
-                          {actionLoading === member.id ? <Loader2 className="w-5 h-5 animate-spin" /> : <Trash2 className="w-5 h-5" />}
-                        </button>
-                      </>
-                    )}
+                        {member.deleted_at ? (
+                          <>
+                            <button
+                              onClick={async (e) => {
+                                e.stopPropagation()
+                                if (!confirm('Recover this member?')) return
+                                setActionLoading(member.id)
+                                await supabase.from('members').update({ deleted_at: null }).eq('id', member.id)
+                                await fetchData()
+                                setActionLoading(null)
+                              }}
+                              disabled={actionLoading === member.id}
+                              className="flex-1 md:flex-none flex justify-center items-center gap-2 py-3 px-4 text-sm font-medium rounded-xl transition-colors border text-red-400 bg-red-400/10 hover:bg-red-400/20 border-red-400/20 disabled:opacity-50"
+                            >
+                              {actionLoading === member.id ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Recover'}
+                            </button>
+                            <button
+                              onClick={async (e) => {
+                                e.stopPropagation()
+                                if (!confirm('Permanently delete this member? This cannot be undone.')) return
+                                setActionLoading(member.id)
+                                await supabase.from('members').delete().eq('id', member.id)
+                                await fetchData()
+                                setActionLoading(null)
+                              }}
+                              disabled={actionLoading === member.id}
+                              className="flex-1 md:flex-none flex justify-center items-center gap-2 py-3 px-4 text-sm font-medium rounded-xl transition-colors border text-red-400 bg-red-400/10 hover:bg-red-400/20 border-red-400/20 disabled:opacity-50"
+                            >
+                              {actionLoading === member.id ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Delete Forever'}
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleMarkPaid(member)
+                              }}
+                              disabled={actionLoading === member.id}
+                              className={`flex-1 md:flex-none flex justify-center items-center gap-2 py-3 px-4 text-sm font-medium rounded-xl transition-colors border disabled:opacity-50 disabled:cursor-not-allowed ${
+                                differenceInDays(new Date(member.next_due_date), new Date()) > 3
+                                  ? 'text-red-400 bg-red-400/10 hover:bg-red-400/20 border-red-400/20'
+                                  : 'text-zinc-300 bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-600 border-zinc-700'
+                              }`}
+                            >
+                              {actionLoading === member.id ? (
+                                <>
+                                  <Loader2 className="w-5 h-5 animate-spin" />
+                                  Wait...
+                                </>
+                              ) : differenceInDays(new Date(member.next_due_date), new Date()) > 3 ? (
+                                <>
+                                  <Check className="w-5 h-5" />
+                                  Up to Date
+                                </>
+                              ) : (
+                                <>
+                                  <DollarSignIcon className="w-5 h-5" />
+                                  Mark Paid
+                                </>
+                              )}
+                            </button>
+                            
+                            {member.phone && (
+                              <a
+                                onClick={(e) => e.stopPropagation()}
+                                href={`https://wa.me/${member.phone.replace(/[^0-9]/g, '')}?text=Hi ${member.name}, this is a reminder from GymFlow regarding your membership.`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex-none flex items-center justify-center p-3 text-red-400 bg-red-400/10 hover:bg-red-400/20 rounded-xl transition-colors border border-red-400/20"
+                              >
+                                <MessageCircle className="w-5 h-5" />
+                              </a>
+                            )}
+
+                            <button
+                              onClick={async (e) => {
+                                e.stopPropagation()
+                                if (!confirm('Move to Recently Deleted?')) return
+                                setActionLoading(member.id)
+                                await supabase.from('members').update({ deleted_at: new Date().toISOString() }).eq('id', member.id)
+                                await fetchData()
+                                setActionLoading(null)
+                              }}
+                              disabled={actionLoading === member.id}
+                              className="flex-none flex items-center justify-center p-3 text-red-400 bg-red-400/10 hover:bg-red-400/20 rounded-xl transition-colors border border-red-400/20 disabled:opacity-50"
+                            >
+                              {actionLoading === member.id ? <Loader2 className="w-5 h-5 animate-spin" /> : <Trash2 className="w-5 h-5" />}
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
             )
           })}
@@ -600,11 +743,11 @@ export default function StaffDashboard() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
           <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-8 max-w-sm w-full text-center shadow-2xl relative overflow-hidden">
             {/* Background scanner line effect */}
-            <div className="absolute top-0 left-0 w-full h-1 bg-emerald-500/50 blur-[2px] animate-[scan_2s_ease-in-out_infinite]" />
+            <div className="absolute top-0 left-0 w-full h-1 bg-red-500/50 blur-[2px] animate-[scan_2s_ease-in-out_infinite]" />
             
-            <div className="w-20 h-20 bg-zinc-950 border border-emerald-500/30 rounded-2xl mx-auto mb-6 flex items-center justify-center relative shadow-[0_0_30px_rgba(16,185,129,0.15)]">
-              <Fingerprint className="w-10 h-10 text-emerald-400 animate-pulse" />
-              <div className="absolute inset-0 border-2 border-emerald-500 rounded-2xl animate-ping opacity-20" />
+            <div className="w-20 h-20 bg-zinc-950 border border-red-500/30 rounded-2xl mx-auto mb-6 flex items-center justify-center relative shadow-[0_0_30px_rgba(16,185,129,0.15)]">
+              <Fingerprint className="w-10 h-10 text-red-400 animate-pulse" />
+              <div className="absolute inset-0 border-2 border-red-500 rounded-2xl animate-ping opacity-20" />
             </div>
             
             <h3 className="text-2xl font-bold text-white mb-2">Hardware Scanner Mode</h3>
@@ -613,7 +756,7 @@ export default function StaffDashboard() {
               Please ask <strong className="text-white">{enrollModalMember?.name}</strong> to place their finger on the scanner now.
             </p>
             
-            <div className="flex items-center justify-center gap-2 text-sm text-emerald-400 bg-emerald-400/10 py-3 px-4 rounded-xl border border-emerald-400/20 mb-6">
+            <div className="flex items-center justify-center gap-2 text-sm text-red-400 bg-red-400/10 py-3 px-4 rounded-xl border border-red-400/20 mb-6">
               <Loader2 className="w-4 h-4 animate-spin" />
               Waiting for biometric data...
             </div>

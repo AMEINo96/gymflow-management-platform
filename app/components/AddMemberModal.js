@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { X, Loader2, Fingerprint, Check } from 'lucide-react'
+import { X, Loader2, Fingerprint, Check, Upload, User } from 'lucide-react'
 import { createClient } from '@/utils/supabase/client'
 
 export default function AddMemberModal({ isOpen, onClose, plans, onAdd }) {
@@ -13,6 +13,8 @@ export default function AddMemberModal({ isOpen, onClose, plans, onAdd }) {
   const [phone, setPhone] = useState('')
   const [gender, setGender] = useState('')
   const [planId, setPlanId] = useState('')
+  const [photoFile, setPhotoFile] = useState(null)
+  const [photoPreview, setPhotoPreview] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   
@@ -31,6 +33,8 @@ export default function AddMemberModal({ isOpen, onClose, plans, onAdd }) {
       setPlanId('')
       setNewMember(null)
       setEnrolledId(null)
+      setPhotoFile(null)
+      setPhotoPreview(null)
       setError(null)
     }
   }, [isOpen])
@@ -68,6 +72,11 @@ export default function AddMemberModal({ isOpen, onClose, plans, onAdd }) {
     setLoading(true)
     setError(null)
     
+    if (!photoFile) {
+      setError('A profile photo is strictly required to register a member.')
+      setLoading(false)
+      return
+    }
     if (!planId) {
       setError('Please select a plan')
       setLoading(false)
@@ -82,6 +91,31 @@ export default function AddMemberModal({ isOpen, onClose, plans, onAdd }) {
     const selectedPlan = plans.find(p => p.id === planId)
     
     try {
+      let imageUrl = null
+      
+      // Upload image to Supabase if one was selected
+      if (photoFile) {
+        const fileExt = photoFile.name.split('.').pop()
+        const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`
+        
+        const { error: uploadError } = await supabase.storage
+          .from('member_photos')
+          .upload(fileName, photoFile, {
+            cacheControl: '3600',
+            upsert: false
+          })
+          
+        if (uploadError) {
+          throw new Error(`Failed to upload photo: ${uploadError.message}`)
+        }
+        
+        const { data: { publicUrl } } = supabase.storage
+          .from('member_photos')
+          .getPublicUrl(fileName)
+          
+        imageUrl = publicUrl
+      }
+
       // Step 1: Save details to database/localStorage
       const member = await onAdd({
         name,
@@ -89,7 +123,8 @@ export default function AddMemberModal({ isOpen, onClose, plans, onAdd }) {
         gender,
         plan_id: planId,
         plan: selectedPlan,
-        fingerprint_id: null // No biometric yet
+        fingerprint_id: null, // No biometric yet
+        image_url: imageUrl
       })
       
       setNewMember(member)
@@ -98,6 +133,15 @@ export default function AddMemberModal({ isOpen, onClose, plans, onAdd }) {
       setError(err.message)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handlePhotoChange = (e) => {
+    const file = e.target.files[0]
+    if (file) {
+      setPhotoFile(file)
+      const previewUrl = URL.createObjectURL(file)
+      setPhotoPreview(previewUrl)
     }
   }
 
@@ -165,6 +209,29 @@ export default function AddMemberModal({ isOpen, onClose, plans, onAdd }) {
               </div>
             )}
             
+            <div className="flex items-center gap-4">
+              <div className="relative w-20 h-20 rounded-full bg-zinc-800 border-2 border-zinc-700 flex items-center justify-center overflow-hidden shrink-0 group">
+                {photoPreview ? (
+                  <img src={photoPreview} alt="Preview" className="w-full h-full object-cover" />
+                ) : (
+                  <User className="w-8 h-8 text-zinc-500 group-hover:text-zinc-400 transition-colors" />
+                )}
+                <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                  <Upload className="w-6 h-6 text-white" />
+                </div>
+                <input 
+                  type="file" 
+                  accept="image/*" 
+                  onChange={handlePhotoChange}
+                  className="absolute inset-0 opacity-0 cursor-pointer"
+                />
+              </div>
+              <div className="flex-1 space-y-1">
+                <label className="text-xs font-medium text-zinc-400 uppercase tracking-wider ml-1">Profile Photo (Optional)</label>
+                <p className="text-xs text-zinc-500 ml-1">Take a picture or upload from gallery.</p>
+              </div>
+            </div>
+
             <div className="space-y-1">
               <label className="text-xs font-medium text-zinc-400 uppercase tracking-wider ml-1">Full Name</label>
               <input
@@ -172,7 +239,7 @@ export default function AddMemberModal({ isOpen, onClose, plans, onAdd }) {
                 required
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="w-full px-4 py-3 bg-zinc-950 border border-zinc-800 rounded-xl focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 outline-none transition-all placeholder:text-zinc-600 text-white"
+                className="w-full px-4 py-3 bg-zinc-950 border border-zinc-800 rounded-xl focus:ring-2 focus:ring-red-500/50 focus:border-red-500 outline-none transition-all placeholder:text-zinc-600 text-white"
                 placeholder="John Doe"
               />
             </div>
@@ -184,7 +251,7 @@ export default function AddMemberModal({ isOpen, onClose, plans, onAdd }) {
                 required
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
-                className="w-full px-4 py-3 bg-zinc-950 border border-zinc-800 rounded-xl focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 outline-none transition-all placeholder:text-zinc-600 text-white"
+                className="w-full px-4 py-3 bg-zinc-950 border border-zinc-800 rounded-xl focus:ring-2 focus:ring-red-500/50 focus:border-red-500 outline-none transition-all placeholder:text-zinc-600 text-white"
                 placeholder="+1 (555) 000-0000"
               />
             </div>
@@ -195,7 +262,7 @@ export default function AddMemberModal({ isOpen, onClose, plans, onAdd }) {
                 required
                 value={gender}
                 onChange={(e) => setGender(e.target.value)}
-                className="w-full px-4 py-3 bg-zinc-950 border border-zinc-800 rounded-xl focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 outline-none transition-all text-white appearance-none"
+                className="w-full px-4 py-3 bg-zinc-950 border border-zinc-800 rounded-xl focus:ring-2 focus:ring-red-500/50 focus:border-red-500 outline-none transition-all text-white appearance-none"
               >
                 <option value="" disabled>Select gender...</option>
                 <option value="male">Male</option>
@@ -209,7 +276,7 @@ export default function AddMemberModal({ isOpen, onClose, plans, onAdd }) {
                 required
                 value={planId}
                 onChange={(e) => setPlanId(e.target.value)}
-                className="w-full px-4 py-3 bg-zinc-950 border border-zinc-800 rounded-xl focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 outline-none transition-all text-white appearance-none"
+                className="w-full px-4 py-3 bg-zinc-950 border border-zinc-800 rounded-xl focus:ring-2 focus:ring-red-500/50 focus:border-red-500 outline-none transition-all text-white appearance-none"
               >
                 <option value="" disabled>Select a plan...</option>
                 {plans.map(plan => (
@@ -224,7 +291,7 @@ export default function AddMemberModal({ isOpen, onClose, plans, onAdd }) {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full py-3 px-4 bg-emerald-500 hover:bg-emerald-600 text-white font-medium rounded-xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-emerald-500/20"
+                className="w-full py-3 px-4 bg-red-500 hover:bg-red-600 text-white font-medium rounded-xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-red-500/20"
               >
                 {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Complete Onboarding'}
               </button>
@@ -234,7 +301,7 @@ export default function AddMemberModal({ isOpen, onClose, plans, onAdd }) {
 
         {step === 'prompt-biometric' && (
           <div className="p-8 text-center space-y-6">
-            <div className="w-16 h-16 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl flex items-center justify-center mx-auto text-emerald-500">
+            <div className="w-16 h-16 bg-red-500/10 border border-red-500/20 rounded-2xl flex items-center justify-center mx-auto text-red-500">
               <Fingerprint className="w-8 h-8" />
             </div>
             <div>
@@ -252,7 +319,7 @@ export default function AddMemberModal({ isOpen, onClose, plans, onAdd }) {
               </button>
               <button
                 onClick={handleStartBiometric}
-                className="flex-1 py-3 px-4 bg-emerald-500 hover:bg-emerald-600 text-white font-medium rounded-xl transition-all shadow-lg shadow-emerald-500/20"
+                className="flex-1 py-3 px-4 bg-red-500 hover:bg-red-600 text-white font-medium rounded-xl transition-all shadow-lg shadow-red-500/20"
               >
                 Yes, Enroll
               </button>
@@ -286,12 +353,12 @@ export default function AddMemberModal({ isOpen, onClose, plans, onAdd }) {
 
         {step === 'success' && (
           <div className="p-8 text-center space-y-6">
-            <div className="w-16 h-16 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl flex items-center justify-center mx-auto text-emerald-500">
+            <div className="w-16 h-16 bg-red-500/10 border border-red-500/20 rounded-2xl flex items-center justify-center mx-auto text-red-500">
               <Check className="w-8 h-8" />
             </div>
             <div>
               <h3 className="text-lg font-bold text-white">Biometric Enrolled!</h3>
-              <p className="text-sm text-emerald-400 font-medium mt-1">
+              <p className="text-sm text-red-400 font-medium mt-1">
                 Linked Fingerprint ID: {enrolledId}
               </p>
               <p className="text-xs text-zinc-500 mt-2">
@@ -300,7 +367,7 @@ export default function AddMemberModal({ isOpen, onClose, plans, onAdd }) {
             </div>
             <button
               onClick={handleFinish}
-              className="w-full py-3 px-4 bg-emerald-500 hover:bg-emerald-600 text-white font-medium rounded-xl transition-all shadow-lg shadow-emerald-500/20"
+              className="w-full py-3 px-4 bg-red-500 hover:bg-red-600 text-white font-medium rounded-xl transition-all shadow-lg shadow-red-500/20"
             >
               Finish & Save
             </button>
